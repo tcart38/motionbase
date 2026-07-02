@@ -88,7 +88,7 @@ export default function Player() {
   return (
     <div className="p-6 h-screen flex flex-col overflow-hidden">
       <div className="flex items-center justify-between mb-5 flex-shrink-0">
-        <button onClick={() => navigate(-1)} className="btn-ghost -ml-1 self-start">
+        <button onClick={() => navigate(`/library?${searchParams.toString()}`)} className="btn-ghost -ml-1 self-start">
           <ArrowLeft size={14} /> Back
         </button>
         <button onClick={handleNext} disabled={nextLoading} className="btn-ghost disabled:opacity-40">
