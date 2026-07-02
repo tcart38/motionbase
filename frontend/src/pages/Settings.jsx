@@ -30,6 +30,7 @@ export default function Settings() {
   const [categories, setCategories] = useState([])
   const [allTags, setAllTags] = useState([])
   const [scanInterval, setScanInterval] = useState('30')
+  const [version, setVersion] = useState(null)
   const [saving, setSaving] = useState(false)
   const [editingCatId, setEditingCatId] = useState(null)
   const [editingTagId, setEditingTagId] = useState(null)
@@ -42,6 +43,7 @@ export default function Settings() {
     setCategories(cats)
     setAllTags(tags)
     setScanInterval(settings.scan_interval || '30')
+    setVersion(settings.version || null)
   }, [])
 
   useEffect(() => { load() }, [load])
@@ -118,7 +120,12 @@ export default function Settings() {
 
   return (
     <div className="p-6 max-w-2xl">
-      <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-6">Settings</h1>
+      <div className="flex items-baseline gap-2 mb-6">
+        <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Settings</h1>
+        {version && (
+          <span className="text-xs text-slate-400 dark:text-slate-500">v{version}</span>
+        )}
+      </div>
 
       {/* Appearance */}
       <section className="card p-4 mb-6">
