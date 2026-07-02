@@ -1,0 +1,72 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* Must use html.dark not @apply dark: — the compiled selector .dark html never matches
+     when dark is on html itself (needs a parent). */
+  html {
+    @apply bg-slate-50 text-slate-900;
+  }
+  html.dark {
+    @apply bg-slate-900 text-slate-100;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: theme('colors.slate.300') transparent;
+  }
+  html.dark * {
+    scrollbar-color: theme('colors.slate.600') transparent;
+  }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { @apply bg-slate-300 rounded-full; }
+  html.dark ::-webkit-scrollbar-thumb { @apply bg-slate-600; }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium
+           transition-colors duration-150 cursor-pointer select-none;
+  }
+  .btn-primary {
+    @apply btn bg-brand text-white hover:bg-brand-hover;
+  }
+  .btn-ghost {
+    @apply btn text-slate-500 hover:bg-slate-200 hover:text-slate-900
+           dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-slate-100;
+  }
+  .btn-danger {
+    @apply btn bg-red-600 text-white hover:bg-red-500;
+  }
+  .tag-chip {
+    @apply inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium
+           bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-200;
+  }
+  /* Selectable tag button — used in pickers throughout */
+  .tag-btn {
+    @apply px-2.5 py-1 rounded-lg text-xs font-medium transition-colors duration-150 cursor-pointer
+           bg-slate-200 text-slate-600 hover:bg-slate-300
+           dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600;
+  }
+  .tag-btn-active {
+    @apply bg-brand text-white hover:bg-brand-hover
+           dark:bg-brand dark:text-white dark:hover:bg-brand-hover;
+  }
+  .card {
+    @apply bg-white border-slate-200 dark:bg-slate-800 dark:border-white/[0.06] rounded-xl border;
+  }
+  .input {
+    @apply w-full bg-white border-slate-300 text-slate-900 placeholder-slate-400
+           dark:bg-slate-700 dark:border-white/[0.08] dark:text-slate-100 dark:placeholder-slate-400
+           border rounded-lg px-3 py-2 text-sm
+           focus:outline-none focus:ring-2 focus:ring-brand/50 focus:border-brand/50
+           transition-colors duration-150;
+  }
+  /* Video player controls — always dark regardless of theme */
+  .player-controls {
+    @apply bg-zinc-950/95 text-slate-100;
+  }
+}

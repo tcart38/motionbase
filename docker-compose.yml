@@ -1,0 +1,23 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime  # skips frontend build for faster local iteration
+    ports:
+      - "3001:3001"
+    volumes:
+      # Mount your local test media folder here
+      - ./test-media:/media:ro
+      # Persistent DB + thumbnails
+      - motionbase-data:/data
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      MEDIA_DIR: /media
+      DATA_DIR: /data
+      SCAN_INTERVAL: 30
+    restart: unless-stopped
+
+volumes:
+  motionbase-data:
