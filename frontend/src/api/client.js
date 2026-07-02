@@ -21,6 +21,12 @@ export const getFiles = (params = {}) => {
   return request(`/files${qs ? `?${qs}` : ''}`)
 }
 export const getFile = (id) => request(`/files/${id}`)
+export const getNextFile = (id, params = {}) => {
+  const qs = new URLSearchParams(
+    Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== ''))
+  ).toString()
+  return request(`/files/${id}/next${qs ? `?${qs}` : ''}`)
+}
 export const patchFile = (id, body) => request(`/files/${id}`, { method: 'PATCH', body })
 export const deleteFile = (id) => request(`/files/${id}`, { method: 'DELETE' })
 

@@ -5,34 +5,16 @@ import { getDb } from '../db/index.js'
 
 const router = Router()
 
-// GET /api/files?view=all|inbox&tags=1,2,3&sort=date_added&order=desc&page=1&limit=50
-router.get('/', (req, res) => {
-  const db = getDb()
-  const {
-    view = 'all',
-    tags = '',
-    sort = 'date_added',
-    order = 'desc',
-    page = '1',
-    limit = '50',
-    search = '',
-    favorites = '',
-  } = req.query
+const SORT_COLUMNS = { date_added: 'f.date_added', filename: 'f.filename', duration: 'f.duration' }
 
-  const validSorts = { date_added: 'f.date_added', filename: 'f.filename', duration: 'f.duration' }
-  const sortCol = validSorts[sort] || 'f.date_added'
-  const sortDir = order === 'asc' ? 'ASC' : 'DESC'
-
-  const offset = (Math.max(1, parseInt(page, 10)) - 1) * Math.max(1, parseInt(limit, 10))
-  const limitVal = Math.max(1, parseInt(limit, 10))
-
-  // Build tag filter — AND across categories, OR within category
+// Shared WHERE-clause builder for the file list and the filter-aware "next file" lookup.
+// Tag filtering is AND-across-categories, OR-within-category.
+function buildFileFilter(db, { view = 'all', tags = '', search = '', favorites = '' }) {
   const tagIds = tags ? tags.split(',').map(Number).filter(Boolean) : []
   const tagConditions = []
   const tagParams = []
 
   if (tagIds.length > 0) {
-    // Group tag IDs by category
     const tagRows = db.prepare(
       `SELECT t.id, t.category_id FROM tags t WHERE t.id IN (${tagIds.map(() => '?').join(',')})`
     ).all(...tagIds)
@@ -63,7 +45,30 @@ router.get('/', (req, res) => {
     ...tagConditions,
   ].filter(Boolean).join(' AND ')
 
-  const allParams = [...preParams, ...tagParams]
+  return { where, params: [...preParams, ...tagParams] }
+}
+
+// GET /api/files?view=all|inbox&tags=1,2,3&sort=date_added&order=desc&page=1&limit=50
+router.get('/', (req, res) => {
+  const db = getDb()
+  const {
+    view = 'all',
+    tags = '',
+    sort = 'date_added',
+    order = 'desc',
+    page = '1',
+    limit = '50',
+    search = '',
+    favorites = '',
+  } = req.query
+
+  const sortCol = SORT_COLUMNS[sort] || 'f.date_added'
+  const sortDir = order === 'asc' ? 'ASC' : 'DESC'
+
+  const offset = (Math.max(1, parseInt(page, 10)) - 1) * Math.max(1, parseInt(limit, 10))
+  const limitVal = Math.max(1, parseInt(limit, 10))
+
+  const { where, params: allParams } = buildFileFilter(db, { view, tags, search, favorites })
 
   const countSql = `SELECT COUNT(*) AS total FROM files f WHERE ${where}`
   const { total } = db.prepare(countSql).get(...allParams)
@@ -120,6 +125,28 @@ router.get('/:id', (req, res) => {
   `).all(file.id)
 
   res.json({ ...file, tags })
+})
+
+// GET /api/files/:id/next — id of the next file in the current filtered/sorted view (wraps around)
+router.get('/:id/next', (req, res) => {
+  const db = getDb()
+  const { tags = '', sort = 'date_added', order = 'desc', search = '', favorites = '' } = req.query
+
+  const sortCol = SORT_COLUMNS[sort] || 'f.date_added'
+  const sortDir = order === 'asc' ? 'ASC' : 'DESC'
+
+  const { where, params } = buildFileFilter(db, { view: 'all', tags, search, favorites })
+
+  const ids = db.prepare(`
+    SELECT f.id FROM files f WHERE ${where} ORDER BY ${sortCol} ${sortDir}, f.id ${sortDir}
+  `).all(...params).map((r) => r.id)
+
+  if (ids.length === 0) return res.status(404).json({ error: 'No files match the current filter' })
+
+  const currentIdx = ids.indexOf(Number(req.params.id))
+  const nextId = currentIdx === -1 ? ids[0] : ids[(currentIdx + 1) % ids.length]
+
+  res.json({ nextId, total: ids.length })
 })
 
 // PATCH /api/files/:id — update needs_tagging, tags, or filename

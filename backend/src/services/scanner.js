@@ -50,6 +50,15 @@ export async function runScan() {
       }
     }
 
+    // Backfill file_size for rows that predate the column (or whose stat failed before)
+    const missingSize = db.prepare('SELECT id, filepath FROM files WHERE file_size IS NULL AND is_missing = 0').all()
+    for (const row of missingSize) {
+      try {
+        const stat = await fs.stat(row.filepath)
+        db.prepare('UPDATE files SET file_size = ? WHERE id = ?').run(stat.size, row.id)
+      } catch { /* leave null; will retry next scan */ }
+    }
+
     lastScanResult = { ...result, scannedAt: new Date().toISOString() }
     return result
   } finally {
@@ -97,6 +106,11 @@ async function processFile(db, fileInfo) {
       : await probeImage(fileInfo.filepath)
   } catch { /* leave nulls */ }
 
+  let fileSize = null
+  try {
+    fileSize = (await fs.stat(fileInfo.filepath)).size
+  } catch { /* leave null */ }
+
   let thumbnailPath = null
   try {
     const outPath = path.join(config.thumbnailsDir, `${id}.jpg`)
@@ -109,10 +123,10 @@ async function processFile(db, fileInfo) {
   db.prepare(`
     UPDATE files
     SET duration = ?, width = ?, height = ?, fps = ?,
-        aspect_ratio = ?, thumbnail_path = ?
+        aspect_ratio = ?, thumbnail_path = ?, file_size = ?
     WHERE id = ?
   `).run(meta.duration ?? null, meta.width ?? null, meta.height ?? null,
-         meta.fps ?? null, aspectRatio, thumbnailPath, id)
+         meta.fps ?? null, aspectRatio, thumbnailPath, fileSize, id)
 
   if (aspectRatio) applyAspectRatioTag(db, id, aspectRatio)
 }

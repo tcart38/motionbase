@@ -51,6 +51,7 @@ export function runMigrations(db) {
   // Migrations for new columns
   try { db.exec("ALTER TABLE files ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0") } catch {}
   try { db.exec("ALTER TABLE files ADD COLUMN notes TEXT") } catch {}
+  try { db.exec("ALTER TABLE files ADD COLUMN file_size INTEGER") } catch {}
 
   seed(db)
 }

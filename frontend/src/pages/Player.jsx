@@ -1,20 +1,43 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Check, Download, Image as ImageIcon, Pencil, Star, X } from 'lucide-react'
-import { getFile, patchFile, streamUrl, thumbnailUrl, downloadUrl } from '../api/client.js'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
+import { ArrowLeft, ArrowRight, Check, Download, Image as ImageIcon, Pencil, Star, X } from 'lucide-react'
+import { getFile, getNextFile, patchFile, streamUrl, thumbnailUrl, downloadUrl } from '../api/client.js'
 import VideoPlayer from '../components/VideoPlayer.jsx'
 import TagEditor from '../components/TagEditor.jsx'
+
+function formatBytes(bytes) {
+  if (!bytes) return null
+  const units = ['B', 'KB', 'MB', 'GB']
+  let val = bytes
+  let i = 0
+  while (val >= 1024 && i < units.length - 1) { val /= 1024; i++ }
+  return `${val.toFixed(i === 0 || val >= 10 ? 0 : 1)} ${units[i]}`
+}
 
 export default function Player() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [file, setFile] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [nextLoading, setNextLoading] = useState(false)
 
   useEffect(() => {
     setLoading(true)
     getFile(id).then(setFile).finally(() => setLoading(false))
   }, [id])
+
+  const handleNext = useCallback(async () => {
+    setNextLoading(true)
+    try {
+      const { nextId } = await getNextFile(id, Object.fromEntries(searchParams))
+      navigate(`/player/${nextId}?${searchParams.toString()}`)
+    } catch {
+      // No files match the current filter — nothing to advance to.
+    } finally {
+      setNextLoading(false)
+    }
+  }, [id, searchParams, navigate])
 
   const handleTagSaved = useCallback((updated) => setFile(updated), [])
 
@@ -64,9 +87,14 @@ export default function Player() {
 
   return (
     <div className="p-6 h-screen flex flex-col overflow-hidden">
-      <button onClick={() => navigate(-1)} className="btn-ghost mb-5 -ml-1 flex-shrink-0 self-start">
-        <ArrowLeft size={14} /> Back
-      </button>
+      <div className="flex items-center justify-between mb-5 flex-shrink-0">
+        <button onClick={() => navigate(-1)} className="btn-ghost -ml-1 self-start">
+          <ArrowLeft size={14} /> Back
+        </button>
+        <button onClick={handleNext} disabled={nextLoading} className="btn-ghost disabled:opacity-40">
+          Next <ArrowRight size={14} />
+        </button>
+      </div>
 
       <div className="flex gap-6 items-stretch flex-1 min-h-0">
         {/* Tag editor sidebar — full height, left of the main content */}
@@ -159,6 +187,7 @@ export default function Player() {
                 ['Type', file.file_type],
                 ['Dimensions', file.width ? `${file.width}×${file.height}` : '—'],
                 ['Duration', file.duration ? `${file.duration.toFixed(2)}s` : '—'],
+                ['Size', formatBytes(file.file_size) ?? '—'],
                 ['FPS', file.fps ?? '—'],
                 ['Aspect ratio', file.aspect_ratio ?? '—'],
                 ['Added', file.date_added ? new Date(file.date_added).toLocaleDateString() : '—'],

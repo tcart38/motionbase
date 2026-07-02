@@ -1,5 +1,5 @@
 import React, { useRef, useState, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { Play, Image, Star, Check } from 'lucide-react'
 import TagChip from './TagChip.jsx'
 import { thumbnailUrl, streamUrl } from '../api/client.js'
@@ -13,6 +13,7 @@ function formatDuration(secs) {
 
 export default function MediaCard({ file, selectMode, selected, onSelect, onFavoriteToggle }) {
   const navigate = useNavigate()
+  const location = useLocation()
   const videoRef = useRef(null)
   // latestPct tracks the mouse position so we can seek after metadata loads
   const latestPctRef = useRef(0)
@@ -63,7 +64,7 @@ export default function MediaCard({ file, selectMode, selected, onSelect, onFavo
 
   return (
     <button
-      onClick={() => selectMode ? onSelect() : navigate(`/player/${file.id}`)}
+      onClick={() => selectMode ? onSelect() : navigate(`/player/${file.id}${location.search}`)}
       className="card group text-left w-full overflow-hidden transition-all duration-150
                  hover:border-white/[0.12] hover:ring-1 hover:ring-brand/30
                  focus:outline-none focus:ring-2 focus:ring-brand/50 cursor-pointer"

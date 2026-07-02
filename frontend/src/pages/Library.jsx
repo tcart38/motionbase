@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import { Search, X, ChevronDown, LayoutGrid, Star, CheckSquare, Square } from 'lucide-react'
+import { useSearchParams, useNavigate } from 'react-router-dom'
+import { Search, X, ChevronDown, LayoutGrid, Star, CheckSquare, Square, Shuffle } from 'lucide-react'
 import { getFiles, getCategories, getTags, patchFile } from '../api/client.js'
 import MediaCard from '../components/MediaCard.jsx'
 
@@ -76,6 +76,7 @@ function CategoryFilter({ cat, tags, selectedTags, onToggle }) {
 }
 
 export default function Library() {
+  const navigate = useNavigate()
   const [data, setData] = useState({ files: [], total: 0 })
   const [categories, setCategories] = useState([])
   const [allTags, setAllTags] = useState([])
@@ -150,6 +151,12 @@ export default function Library() {
   })
 
   const clearFilters = () => updateParams((p) => p.delete('tags'))
+
+  const handleRandom = () => {
+    if (data.files.length === 0) return
+    const file = data.files[Math.floor(Math.random() * data.files.length)]
+    navigate(`/player/${file.id}?${searchParams.toString()}`)
+  }
 
   const toggleSelectMode = () => {
     setSelectMode(v => !v)
@@ -228,6 +235,16 @@ export default function Library() {
           >
             {selectMode ? <CheckSquare size={13} /> : <Square size={13} />}
             Select
+          </button>
+
+          <button
+            onClick={handleRandom}
+            disabled={data.files.length === 0}
+            className="btn-ghost text-xs px-2.5 flex items-center gap-1 disabled:opacity-40"
+            title="Play a random file from the current view"
+          >
+            <Shuffle size={13} />
+            Random
           </button>
 
           {/* Grid size */}
