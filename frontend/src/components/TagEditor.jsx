@@ -1,12 +1,129 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { Check, Plus, X } from 'lucide-react'
+import { Check, Plus, Search, X } from 'lucide-react'
 import { getTags, getCategories, patchFile, createTag, createCategory } from '../api/client.js'
 
-export default function TagEditor({ file, onSaved }) {
+// Once a category has more tags than this, only the most-used ones show inline;
+// the rest live behind a searchable "+N more" popover so a big Brand list doesn't
+// swamp the sidebar.
+const TAG_COLLAPSE_THRESHOLD = 10
+const TAG_VISIBLE_COUNT = 8
+
+function TagPickerPopover({ cat, tags, selectedIds, onToggle, onClose }) {
+  const [query, setQuery] = useState('')
+  const ref = useRef(null)
+
+  useEffect(() => {
+    const handler = (e) => { if (!ref.current?.contains(e.target)) onClose() }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [onClose])
+
+  const filtered = tags
+    .filter((t) => t.name.toLowerCase().includes(query.trim().toLowerCase()))
+    .sort((a, b) => (b.file_count || 0) - (a.file_count || 0))
+
+  return (
+    <div
+      ref={ref}
+      className="absolute z-30 top-full left-0 mt-1.5 card p-3 w-64 shadow-xl border border-slate-200 dark:border-white/[0.08]"
+    >
+      <div className="relative mb-2">
+        <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+        <input
+          autoFocus
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={`Search ${cat.name.toLowerCase()}…`}
+          className="input pl-6 py-1 text-xs w-full"
+        />
+      </div>
+      <div className="flex flex-wrap gap-1.5 max-h-52 overflow-y-auto">
+        {filtered.length === 0 && (
+          <p className="text-xs text-slate-400 dark:text-slate-500 px-0.5 py-1">No matching tags</p>
+        )}
+        {filtered.map((tag) => {
+          const active = selectedIds.has(tag.id)
+          return (
+            <button
+              key={tag.id}
+              onClick={() => onToggle(tag.id)}
+              className={`tag-btn ${active ? 'tag-btn-active' : ''}`}
+            >
+              {tag.name}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function CategoryTagList({ cat, tags, selectedIds, onToggle }) {
+  const [popoverOpen, setPopoverOpen] = useState(false)
+
+  const renderTag = (tag) => {
+    const active = selectedIds.has(tag.id)
+    return (
+      <button
+        key={tag.id}
+        onClick={() => onToggle(tag.id)}
+        className={`tag-btn ${active ? 'tag-btn-active' : ''}`}
+      >
+        {tag.name}
+      </button>
+    )
+  }
+
+  if (tags.length <= TAG_COLLAPSE_THRESHOLD) {
+    return <>{tags.map(renderTag)}</>
+  }
+
+  // Always keep already-selected tags visible; fill remaining slots with the
+  // most-used unselected tags so the common case never needs the popover.
+  const selected = tags.filter((t) => selectedIds.has(t.id))
+  const unselected = tags
+    .filter((t) => !selectedIds.has(t.id))
+    .sort((a, b) => (b.file_count || 0) - (a.file_count || 0))
+  const visible = [...selected, ...unselected.slice(0, Math.max(0, TAG_VISIBLE_COUNT - selected.length))]
+  const hiddenCount = tags.length - visible.length
+
+  return (
+    <>
+      {visible.map(renderTag)}
+      {hiddenCount > 0 && (
+        <div className="relative">
+          <button
+            onClick={() => setPopoverOpen((o) => !o)}
+            className="tag-btn text-slate-400 dark:text-slate-500 hover:text-brand"
+          >
+            +{hiddenCount} more
+          </button>
+          {popoverOpen && (
+            <TagPickerPopover
+              cat={cat}
+              tags={tags}
+              selectedIds={selectedIds}
+              onToggle={onToggle}
+              onClose={() => setPopoverOpen(false)}
+            />
+          )}
+        </div>
+      )}
+    </>
+  )
+}
+
+export default function TagEditor({ file, onSaved, onSaveStateChange }) {
   const [categories, setCategories] = useState([])
   const [allTags, setAllTags] = useState([])
   const [selectedIds, setSelectedIds] = useState(new Set())
   const [saveState, setSaveState] = useState('idle') // 'idle' | 'saving' | 'saved'
+
+  // Surface save state to the parent so it can show the indicator in the panel
+  // header instead of reserving a gap at the top of the tag list.
+  const onSaveStateChangeRef = useRef(onSaveStateChange)
+  useEffect(() => { onSaveStateChangeRef.current = onSaveStateChange }, [onSaveStateChange])
+  useEffect(() => { onSaveStateChangeRef.current?.(saveState) }, [saveState])
 
   // Inline new-tag state
   const [addingTagTo, setAddingTagTo] = useState(null)
@@ -88,18 +205,6 @@ export default function TagEditor({ file, onSaved }) {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Save status indicator */}
-      <div className="h-4 flex items-center">
-        {saveState === 'saving' && (
-          <span className="text-xs text-slate-400 dark:text-slate-500">Saving…</span>
-        )}
-        {saveState === 'saved' && (
-          <span className="text-xs text-emerald-500 flex items-center gap-1">
-            <Check size={11} /> Saved
-          </span>
-        )}
-      </div>
-
       {categories.map((cat) => {
         const catTags = allTags.filter((t) => t.category_id === cat.id)
         const isAddingHere = addingTagTo === cat.id
@@ -109,18 +214,7 @@ export default function TagEditor({ file, onSaved }) {
               {cat.name}
             </p>
             <div className="flex flex-wrap gap-1.5 items-center">
-              {catTags.map((tag) => {
-                const active = selectedIds.has(tag.id)
-                return (
-                  <button
-                    key={tag.id}
-                    onClick={() => toggle(tag.id)}
-                    className={`tag-btn ${active ? 'tag-btn-active' : ''}`}
-                  >
-                    {tag.name}
-                  </button>
-                )
-              })}
+              <CategoryTagList cat={cat} tags={catTags} selectedIds={selectedIds} onToggle={toggle} />
 
               {/* Inline add-tag input */}
               {isAddingHere ? (

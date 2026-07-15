@@ -11,7 +11,7 @@ function formatDuration(secs) {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
-export default function MediaCard({ file, selectMode, selected, onSelect, onFavoriteToggle }) {
+export default function MediaCard({ file, selectMode, selected, onSelect, onFavoriteToggle, onPlay }) {
   const navigate = useNavigate()
   const location = useLocation()
   const videoRef = useRef(null)
@@ -115,6 +115,19 @@ export default function MediaCard({ file, selectMode, selected, onSelect, onFavo
               style={{ width: `${scrubPct * 100}%`, transition: 'none' }}
             />
           </div>
+        )}
+
+        {/* Play in place — opens the file in a modal without leaving the library */}
+        {!selectMode && file.file_type === 'video' && onPlay && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onPlay(file) }}
+            className="absolute inset-0 m-auto w-10 h-10 rounded-full bg-black/50 flex items-center justify-center
+              opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/70 hover:scale-110 duration-150"
+            title="Play"
+            aria-label="Play"
+          >
+            <Play size={16} className="text-white fill-white ml-0.5" />
+          </button>
         )}
 
         {isNew && !selectMode && (

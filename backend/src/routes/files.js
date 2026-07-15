@@ -9,7 +9,7 @@ const SORT_COLUMNS = { date_added: 'f.date_added', filename: 'f.filename', durat
 
 // Shared WHERE-clause builder for the file list and the filter-aware "next file" lookup.
 // Tag filtering is AND-across-categories, OR-within-category.
-function buildFileFilter(db, { view = 'all', tags = '', search = '', favorites = '' }) {
+function buildFileFilter(db, { view = 'all', tags = '', search = '', favorites = '', untagged = '' }) {
   const tagIds = tags ? tags.split(',').map(Number).filter(Boolean) : []
   const tagConditions = []
   const tagParams = []
@@ -37,11 +37,23 @@ function buildFileFilter(db, { view = 'all', tags = '', search = '', favorites =
     preParams.push(`%${search.trim()}%`)
   }
 
+  // "Untagged" ignores the auto-applied Aspect Ratio category (is_system = 1) —
+  // a file with only its aspect ratio tag still counts as having no real tags.
+  const untaggedCondition = untagged === '1'
+    ? `NOT EXISTS (
+        SELECT 1 FROM file_tags ft
+        JOIN tags t ON t.id = ft.tag_id
+        JOIN tag_categories c ON c.id = t.category_id
+        WHERE ft.file_id = f.id AND c.is_system = 0
+      )`
+    : null
+
   const where = [
     'f.is_missing = 0',
     view === 'inbox' ? 'f.needs_tagging = 1' : null,
     favorites === '1' ? 'f.is_favorite = 1' : null,
     search.trim() ? 'f.filename LIKE ?' : null,
+    untaggedCondition,
     ...tagConditions,
   ].filter(Boolean).join(' AND ')
 
@@ -60,6 +72,7 @@ router.get('/', (req, res) => {
     limit = '50',
     search = '',
     favorites = '',
+    untagged = '',
   } = req.query
 
   const sortCol = SORT_COLUMNS[sort] || 'f.date_added'
@@ -68,7 +81,7 @@ router.get('/', (req, res) => {
   const offset = (Math.max(1, parseInt(page, 10)) - 1) * Math.max(1, parseInt(limit, 10))
   const limitVal = Math.max(1, parseInt(limit, 10))
 
-  const { where, params: allParams } = buildFileFilter(db, { view, tags, search, favorites })
+  const { where, params: allParams } = buildFileFilter(db, { view, tags, search, favorites, untagged })
 
   const countSql = `SELECT COUNT(*) AS total FROM files f WHERE ${where}`
   const { total } = db.prepare(countSql).get(...allParams)
@@ -130,12 +143,12 @@ router.get('/:id', (req, res) => {
 // GET /api/files/:id/next — id of the next file in the current filtered/sorted view (wraps around)
 router.get('/:id/next', (req, res) => {
   const db = getDb()
-  const { tags = '', sort = 'date_added', order = 'desc', search = '', favorites = '' } = req.query
+  const { tags = '', sort = 'date_added', order = 'desc', search = '', favorites = '', untagged = '' } = req.query
 
   const sortCol = SORT_COLUMNS[sort] || 'f.date_added'
   const sortDir = order === 'asc' ? 'ASC' : 'DESC'
 
-  const { where, params } = buildFileFilter(db, { view: 'all', tags, search, favorites })
+  const { where, params } = buildFileFilter(db, { view: 'all', tags, search, favorites, untagged })
 
   const ids = db.prepare(`
     SELECT f.id FROM files f WHERE ${where} ORDER BY ${sortCol} ${sortDir}, f.id ${sortDir}

@@ -3,6 +3,8 @@ import { Play, Pause, Volume2, VolumeX, SkipBack, SkipForward, Maximize2, Minimi
 import { streamUrl } from '../api/client.js'
 
 const RATES = [0.25, 0.5, 1, 1.5, 2]
+const VOLUME_KEY = 'player:volume'
+const MUTED_KEY = 'player:muted'
 
 function formatTime(secs) {
   if (!isFinite(secs)) return '0:00'
@@ -11,7 +13,7 @@ function formatTime(secs) {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
-export default function VideoPlayer({ file }) {
+export default function VideoPlayer({ file, onBoxResize }) {
   const containerRef = useRef(null)
   const videoRef = useRef(null)
   const scrubBarRef = useRef(null)
@@ -21,8 +23,11 @@ export default function VideoPlayer({ file }) {
   const [playing, setPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
-  const [volume, setVolume] = useState(1)
-  const [muted, setMuted] = useState(false)
+  const [volume, setVolume] = useState(() => {
+    const saved = parseFloat(localStorage.getItem(VOLUME_KEY))
+    return Number.isFinite(saved) ? Math.max(0, Math.min(1, saved)) : 1
+  })
+  const [muted, setMuted] = useState(() => localStorage.getItem(MUTED_KEY) === '1')
   const [rate, setRate] = useState(1)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [isScrubbing, setIsScrubbing] = useState(false)
@@ -39,6 +44,12 @@ export default function VideoPlayer({ file }) {
     setCurrentTime(0)
     setDuration(0)
     setRate(1)
+    // A freshly mounted <video> element defaults to volume=1/muted=false,
+    // so re-apply the persisted setting whenever the source changes.
+    if (videoRef.current) {
+      videoRef.current.volume = volume
+      videoRef.current.muted = muted
+    }
   }, [file?.id])
 
   useEffect(() => {
@@ -147,22 +158,21 @@ export default function VideoPlayer({ file }) {
 
   const handleVolumeChange = useCallback((e) => {
     const val = parseFloat(e.target.value)
+    const nowMuted = val === 0
     setVolume(val)
+    setMuted(nowMuted)
     if (videoRef.current) {
       videoRef.current.volume = val
-      videoRef.current.muted = val === 0
+      videoRef.current.muted = nowMuted
     }
-    setMuted(val === 0)
+    localStorage.setItem(VOLUME_KEY, String(val))
+    localStorage.setItem(MUTED_KEY, nowMuted ? '1' : '0')
   }, [])
-
-  if (!file || file.file_type !== 'video') return null
-
-  const progress = duration ? (currentTime / duration) * 100 : 0
 
   // Size the player box to the video's "contain" fit within the measured slot.
   // We fit the video into (slot width, slot height − controls), then add the
   // controls height back so the whole box hugs the video on every side.
-  const ar = file.width && file.height ? file.width / file.height : 16 / 9
+  const ar = file?.width && file?.height ? file.width / file.height : 16 / 9
   // Minimum box width so narrow (portrait) videos don't squish the controls bar.
   const MIN_BOX_W = 680
   const boxStyle = (() => {
@@ -176,10 +186,26 @@ export default function VideoPlayer({ file }) {
     return { width: `${Math.round(boxW)}px`, height: `${Math.round(vH + slot.ctrl)}px` }
   })()
 
+  // Let the caller know how wide the rendered box actually is, so surrounding
+  // UI (e.g. a modal header) can size itself to match instead of guessing.
+  const boxWidthPx = boxStyle ? Math.round(parseFloat(boxStyle.width)) : null
+  useEffect(() => {
+    onBoxResize?.(boxWidthPx)
+  }, [boxWidthPx])
+
+  if (!file || file.file_type !== 'video') return null
+
+  const progress = duration ? (currentTime / duration) * 100 : 0
+
   const box = (
     <div
       ref={containerRef}
       style={boxStyle}
+      // Stop clicks here from bubbling past the player — e.g. a modal that
+      // closes on any outside click shouldn't close when you're toggling
+      // play or dragging the scrub bar. Anything outside this box (visible
+      // when the video is narrower than its bounding area) is fair game.
+      onClick={(e) => e.stopPropagation()}
       className={`bg-black overflow-hidden flex flex-col min-h-0
         ${isFullscreen ? 'fixed inset-0 z-50 w-full h-full' : 'rounded-xl'}`}
     >
@@ -245,7 +271,14 @@ export default function VideoPlayer({ file }) {
           </div>
 
           <button
-            onClick={() => { const v = videoRef.current; if (!v) return; v.muted = !muted; setMuted(!muted) }}
+            onClick={() => {
+              const v = videoRef.current
+              if (!v) return
+              const nowMuted = !muted
+              v.muted = nowMuted
+              setMuted(nowMuted)
+              localStorage.setItem(MUTED_KEY, nowMuted ? '1' : '0')
+            }}
             className="p-1 text-zinc-300 hover:text-white transition-colors cursor-pointer"
           >
             {muted ? <VolumeX size={14} /> : <Volume2 size={14} />}
@@ -266,7 +299,7 @@ export default function VideoPlayer({ file }) {
 
   // The slot fills the available area; the box is centered and sized to fit it.
   return (
-    <div ref={slotRef} className="w-full h-full flex items-center justify-start">
+    <div ref={slotRef} className="w-full h-full flex items-center justify-center">
       {box}
     </div>
   )

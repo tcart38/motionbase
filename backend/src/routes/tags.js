@@ -7,9 +7,12 @@ const router = Router()
 router.get('/', (req, res) => {
   const db = getDb()
   const tags = db.prepare(`
-    SELECT t.*, c.name AS category_name, c.is_system AS category_is_system
+    SELECT t.*, c.name AS category_name, c.is_system AS category_is_system,
+      COUNT(ft.file_id) AS file_count
     FROM tags t
     JOIN tag_categories c ON c.id = t.category_id
+    LEFT JOIN file_tags ft ON ft.tag_id = t.id
+    GROUP BY t.id
     ORDER BY c.name, t.name
   `).all()
   res.json(tags)

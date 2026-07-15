@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { Search, X, ChevronDown, LayoutGrid, Star, CheckSquare, Square, Shuffle } from 'lucide-react'
+import { Search, X, ChevronDown, LayoutGrid, Star, CheckSquare, Square, Shuffle, Tag, ExternalLink } from 'lucide-react'
 import { getFiles, getCategories, getTags, patchFile } from '../api/client.js'
 import MediaCard from '../components/MediaCard.jsx'
+import VideoPlayer from '../components/VideoPlayer.jsx'
 
 const SORT_OPTIONS = [
   { value: 'date_added', label: 'Date Added' },
@@ -75,6 +76,8 @@ function CategoryFilter({ cat, tags, selectedTags, onToggle }) {
   )
 }
 
+const SCROLL_KEY = 'library:scrollTop'
+
 export default function Library() {
   const navigate = useNavigate()
   const [data, setData] = useState({ files: [], total: 0 })
@@ -83,6 +86,10 @@ export default function Library() {
   const [loading, setLoading] = useState(true)
   const [selectMode, setSelectMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState(new Set())
+  const scrollRef = useRef(null)
+  const scrollRestoredRef = useRef(false)
+  const [playingFile, setPlayingFile] = useState(null)
+  const [playerBoxWidth, setPlayerBoxWidth] = useState(null)
 
   // Filters/view live in the URL so they survive navigating into a video and back
   // (and are shareable/bookmarkable). The URL is the single source of truth.
@@ -96,6 +103,7 @@ export default function Library() {
   const order = searchParams.get('order') || 'desc'
   const search = searchParams.get('search') || ''
   const favorites = searchParams.get('favorites') === '1'
+  const untagged = searchParams.get('untagged') === '1'
   const gridSizeIdx = (() => {
     const i = Number(searchParams.get('grid') ?? localStorage.getItem('gridSize'))
     return Number.isInteger(i) && i >= 0 && i < GRID_SIZES.length ? i : 2
@@ -127,15 +135,30 @@ export default function Library() {
         tags: [...selectedTags].join(',') || undefined,
         search: search || undefined,
         favorites: favorites ? '1' : undefined,
+        untagged: untagged ? '1' : undefined,
         limit: 200,
       })
       setData(result)
     } finally {
       setLoading(false)
     }
-  }, [selectedTags, sort, order, search, favorites])
+  }, [selectedTags, sort, order, search, favorites, untagged])
 
   useEffect(() => { fetchFiles() }, [fetchFiles])
+
+  // Restore the scroll position once, the first time files finish loading after
+  // mount — this is what makes navigating back from the player land you where
+  // you left off instead of at the top of the grid.
+  useEffect(() => {
+    if (loading || scrollRestoredRef.current) return
+    scrollRestoredRef.current = true
+    const saved = sessionStorage.getItem(SCROLL_KEY)
+    if (saved && scrollRef.current) scrollRef.current.scrollTop = parseInt(saved, 10)
+  }, [loading])
+
+  const handleGridScroll = useCallback(() => {
+    if (scrollRef.current) sessionStorage.setItem(SCROLL_KEY, String(scrollRef.current.scrollTop))
+  }, [])
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -146,11 +169,14 @@ export default function Library() {
 
   const toggleTag = (id) => updateParams((p) => {
     const set = new Set((p.get('tags') || '').split(',').filter(Boolean).map(Number))
+    const adding = !set.has(id)
     set.has(id) ? set.delete(id) : set.add(id)
     set.size ? p.set('tags', [...set].join(',')) : p.delete('tags')
+    // "No Tags" and a specific tag are contradictory — picking a tag clears it.
+    if (adding) p.delete('untagged')
   })
 
-  const clearFilters = () => updateParams((p) => p.delete('tags'))
+  const clearFilters = () => updateParams((p) => { p.delete('tags'); p.delete('favorites'); p.delete('untagged') })
 
   const handleRandom = () => {
     if (data.files.length === 0) return
@@ -167,6 +193,14 @@ export default function Library() {
     const updated = await patchFile(fileId, { is_favorite: newVal ? 1 : 0 })
     setData(prev => ({ ...prev, files: prev.files.map(f => f.id === fileId ? updated : f) }))
   }
+
+  // Close the play modal on Escape
+  useEffect(() => {
+    if (!playingFile) return
+    const handler = (e) => { if (e.key === 'Escape') setPlayingFile(null) }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [playingFile])
 
   const handleBulkTag = async (tagId, add) => {
     const selectedFiles = data.files.filter(f => selectedIds.has(f.id))
@@ -294,7 +328,20 @@ export default function Library() {
               Favorites
             </button>
 
-            {(selectedTags.size > 0 || favorites) && (
+            <button
+              onClick={() => updateParams((p) => untagged ? p.delete('untagged') : p.set('untagged', '1'))}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors ${
+                untagged
+                  ? 'bg-brand border-brand text-white'
+                  : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-white/[0.08] text-slate-600 dark:text-slate-300 hover:border-slate-300'
+              }`}
+              title="Files with no tags applied (aspect ratio doesn't count)"
+            >
+              <Tag size={13} />
+              No Tags
+            </button>
+
+            {(selectedTags.size > 0 || favorites || untagged) && (
               <button
                 onClick={clearFilters}
                 className="btn-ghost text-xs gap-1 text-slate-400 hover:text-red-400"
@@ -307,7 +354,7 @@ export default function Library() {
       </div>
 
       {/* Grid */}
-      <div className="flex-1 overflow-y-auto px-6 pb-6">
+      <div ref={scrollRef} onScroll={handleGridScroll} className="flex-1 overflow-y-auto px-6 pb-6">
         {loading ? (
           <div className={`grid ${gridCols} gap-3`}>
             {Array.from({ length: 20 }).map((_, i) => (
@@ -338,6 +385,7 @@ export default function Library() {
                   return next
                 })}
                 onFavoriteToggle={handleFavoriteToggle}
+                onPlay={(f) => { setPlayerBoxWidth(null); setPlayingFile(f) }}
               />
             ))}
           </div>
@@ -379,6 +427,43 @@ export default function Library() {
               })}
             </div>
             <button onClick={() => { setSelectMode(false); setSelectedIds(new Set()) }} className="btn-primary flex-shrink-0">Done</button>
+          </div>
+        </div>
+      )}
+
+      {/* Play-in-place modal — lets you watch a video without leaving the library
+          grid (filters, scroll position, selection all stay untouched). */}
+      {playingFile && (
+        <div
+          className="fixed inset-0 z-40 bg-black/80 flex items-center justify-center p-6"
+          onClick={() => setPlayingFile(null)}
+        >
+          <div className="w-full max-w-5xl h-[80vh] flex flex-col">
+            {/* Width-matched to the player box below (once known) so the close
+                button's right edge lines up with the video's right edge. */}
+            <div
+              className="flex items-center justify-between mb-3 flex-shrink-0 mx-auto w-full"
+              style={playerBoxWidth ? { width: `${playerBoxWidth}px` } : undefined}
+            >
+              <p className="text-sm text-white/80 truncate pr-4">{playingFile.filename}</p>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  onClick={(e) => { e.stopPropagation(); navigate(`/player/${playingFile.id}?${searchParams.toString()}`) }}
+                  className="btn-ghost-dark"
+                >
+                  <ExternalLink size={14} /> Open Page
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setPlayingFile(null) }}
+                  className="btn-ghost-dark"
+                >
+                  <X size={16} /> Close
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 min-h-0">
+              <VideoPlayer file={playingFile} onBoxResize={setPlayerBoxWidth} />
+            </div>
           </div>
         </div>
       )}
