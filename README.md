@@ -4,12 +4,14 @@ A self-hosted library for motion and graphic design inspiration. MotionBase watc
 
 ## Features
 
-- **Auto-scanning** — point it at a media folder and it indexes new files on a schedule (or on demand), extracting duration, resolution, fps, and aspect ratio via `ffprobe`, and generating a thumbnail for each file.
+- **Auto-scanning** — point it at a media folder and it indexes new files on a schedule (or on demand), extracting duration, resolution, fps, aspect ratio, and file size via `ffprobe`, and generating a thumbnail for each file.
 - **Inbox workflow** — newly scanned files land in an Inbox view so you can tag/review them before they show up in the main Library.
-- **Tagging with categories** — organize tags into categories (e.g. Brand, Video Type, 2D/3D) with an auto-managed "Aspect Ratio" category. Filtering is AND-across-categories, OR-within-category.
+- **Tagging with categories** — organize tags into categories (e.g. Brand, Video Type, 2D/3D) with an auto-managed "Aspect Ratio" category. Filtering is AND-across-categories, OR-within-category. Categories with many tags collapse to the most-used, with a searchable popover for the rest.
+- **Bulk tagging** — select multiple files in the Library and apply/remove tags across all of them at once.
+- **Search & filter** — filter by tag combination, favorites, or "No Tags" (untagged); search by filename; sort by date added, filename, or duration. Filters live in the URL, so they survive navigating into a file and back.
+- **Library preview & playback** — hover a card to scrub through a clip, or play it in place in a modal without leaving the grid (with an "Open Page" jump to the full Player). The grid remembers your scroll position when you return.
+- **Player view** — stream video with range-request seeking, frame-by-frame stepping, adjustable playback speed, and volume that persists across files. A resizable side panel toggles between Tags and Notes, and metadata is shown alongside. Sized to fit the screen without page scrolling.
 - **Favorites & notes** — star files and jot down freeform notes on them.
-- **Search & filter** — filter by tag combination, favorites, or filename search; sort by date added, filename, or duration.
-- **In-browser preview** — stream video with range-request seeking directly in the Player view, no download required.
 - **URL import** — paste a video URL and MotionBase downloads it (via `yt-dlp`) straight into your media folder, then auto-scans it in.
 - **File upload** — drag-and-drop files directly into the media folder from the browser.
 - **Light/dark mode.**
@@ -18,7 +20,7 @@ A self-hosted library for motion and graphic design inspiration. MotionBase watc
 
 - **Backend**: Node.js + Express, SQLite (via `better-sqlite3`), `ffprobe`/`ffmpeg` for metadata & thumbnails, `yt-dlp` for URL imports.
 - **Frontend**: React + Vite + Tailwind CSS.
-- **Deployment**: single Docker image (multi-stage build bundles the frontend into the backend's static assets).
+- **Deployment**: single Docker image (multi-stage build bundles the frontend into the backend's static assets). Every push to `main` auto-builds and publishes the image to GitHub Container Registry as `ghcr.io/tcart38/motionbase:latest` via GitHub Actions (`.github/workflows/docker-publish.yml`).
 
 ## Running locally (development)
 
@@ -51,28 +53,24 @@ This builds the frontend, bundles it into the backend image, and serves everythi
 
 ## Installing on Unraid
 
-MotionBase ships as a normal Docker image, so it runs on Unraid via the built-in Docker manager — no Community Applications template needed, just add a container manually (or via `docker-compose` if you run the Compose Manager plugin).
+The recommended way is to pull the prebuilt image from GHCR using Unraid's built-in Docker manager — no Community Applications template or building from source needed. (You do **not** need docker-compose on Unraid; Compose only orchestrates multiple containers, and MotionBase is a single container. The Unraid Docker UI covers everything the compose file does.)
 
-**Option A — Compose Manager plugin (easiest if installed):**
+1. Docker tab → **Add Container**, then set:
+   - **Repository**: `ghcr.io/tcart38/motionbase:latest`
+   - **Network Type**: `Bridge`
+   - **Port**: host port of your choice (e.g. `3006`) → container `3001`
+   - **Path**: your inspo folder (e.g. `/mnt/user/swipe`) → container `/media` (read-only is fine — MotionBase reads your files but writes new downloads/uploads/renames here if you use those)
+   - **Path**: an appdata folder (e.g. `/mnt/user/appdata/motionbase`) → container `/data` (read/write — holds the SQLite DB and thumbnails)
+   - **Environment**: see variables below (all optional; the defaults match the container)
+2. Apply, then visit `http://<your-unraid-ip>:<host-port>`.
 
-1. Copy this repo onto your Unraid box (e.g. `/mnt/user/appdata/motionbase` or wherever you keep source checkouts), or just copy `docker-compose.yml` and `Dockerfile` there along with `backend/` and `frontend/`.
-2. Edit `docker-compose.yml`:
-   - Change the `./test-media` mount to the real path of your inspo folder, e.g. `/mnt/user/Media/Inspo:/media:ro`.
-   - Optionally point the `motionbase-data` volume at an appdata path instead of a named Docker volume, e.g. `/mnt/user/appdata/motionbase:/data`.
-3. In the Compose Manager tab, add this project and bring it up.
+On first launch MotionBase scans `/media`, then keeps rescanning on the interval configured in Settings (or `SCAN_INTERVAL`).
 
-**Option B — Manual Docker container via the Unraid UI:**
+### Updating
 
-1. Build the image once (on Unraid or elsewhere, then push/load it), or let Unraid build it from the Dockerfile if your setup supports build-from-source.
-2. Add a new container with:
-   - **Repository**: your built image tag (e.g. `motionbase:latest`)
-   - **Port**: `3001` → container `3001`
-   - **Path**: your inspo folder → `/media` (read-only is fine, MotionBase doesn't need write access there)
-   - **Path**: an appdata folder (e.g. `/mnt/user/appdata/motionbase`) → `/data` (read/write — this holds the SQLite DB and thumbnails)
-   - **Environment**: see variables below
-3. Apply, then visit `http://<your-unraid-ip>:3001`.
+Pushes to `main` trigger the GitHub Actions build, which republishes `ghcr.io/tcart38/motionbase:latest`. To pull the new build on Unraid: Docker tab → click the **MotionBase** icon → **Force Update** (or enable auto-update via the CA Auto Update Applications plugin). Your DB, thumbnails, tags, favorites, and notes are untouched because they live in the `/data` appdata mount.
 
-Once running, MotionBase will do an initial scan of `/media` and keep rescanning on the interval configured in Settings (or `SCAN_INTERVAL`).
+The current app version is shown in the app under **Settings**, sourced from `backend/package.json`.
 
 ### Environment variables
 
