@@ -13,10 +13,11 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ error: 'A valid http/https URL is required' })
   }
 
-  const outputTemplate = `${config.mediaDir}/%(title)s [%(id)s].%(ext)s`
+  const outputTemplate = `${config.mediaDir}/[%(id)s] %(title)s.%(ext)s`
   const args = [
     '-m', 'yt_dlp',
     '--output', outputTemplate,
+    '--trim-filenames', '150',
     '--format', 'bestvideo+bestaudio/best',
     '--merge-output-format', 'mp4',
     '--no-playlist',
