@@ -50,9 +50,17 @@ export const patchFile = (id, body) => request(`/files/${id}`, { method: 'PATCH'
 export const deleteFile = (id) => request(`/files/${id}`, { method: 'DELETE' })
 
 export const getFileCounts = () => request('/files/counts')
-export const trashFiles = (file_ids, deleted = true) => request('/files/trash', { method: 'POST', body: { file_ids, deleted } })
+export const trashFiles = (file_ids, deleted = true, expand_groups) => request('/files/trash', { method: 'POST', body: { file_ids, deleted, ...(expand_groups ? { expand_groups: true } : {}) } })
 export const purgeFiles = (body) => request('/files/purge', { method: 'POST', body })
 export const bulkUpdateFiles = (body) => request('/files/bulk', { method: 'POST', body })
+
+// Media groups
+export const getGroup = (id) => request(`/groups/${id}`)
+export const createGroup = (file_ids, title) => request('/groups', { method: 'POST', body: { file_ids, ...(title ? { title } : {}) } })
+export const updateGroup = (id, body) => request(`/groups/${id}`, { method: 'PATCH', body })
+export const addToGroup = (id, file_ids) => request(`/groups/${id}/add`, { method: 'POST', body: { file_ids } })
+export const removeFromGroup = (id, file_ids) => request(`/groups/${id}/remove`, { method: 'POST', body: { file_ids } })
+export const ungroupGroup = (id) => request(`/groups/${id}/ungroup`, { method: 'POST', body: {} })
 
 // Folders
 export const getFolders = () => request('/folders')

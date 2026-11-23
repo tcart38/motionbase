@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   RiArrowLeftLine, RiArrowRightLine, RiCheckLine, RiCloseLine, RiDownloadLine, RiImageLine, RiPencilLine,
   RiStarFill, RiStarLine, RiCheckDoubleLine, RiFolderLine, RiFolderOpenLine, RiDeleteBinLine, RiSparklingLine,
+  RiStackLine, RiLayoutGridLine, RiArrowLeftSLine, RiArrowRightSLine,
 } from '@remixicon/react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button.jsx'
@@ -21,13 +22,14 @@ import TagEditor from '@/components/TagEditor.jsx'
 import NotesEditor, { SaveIndicator } from '@/components/NotesEditor.jsx'
 import HistoryPanel from '@/components/HistoryPanel.jsx'
 import MoveToFolderDialog from '@/components/MoveToFolderDialog.jsx'
-import { getFile, getNextFile, patchFile, streamUrl, thumbnailUrl, downloadUrl } from '@/api/client.js'
+import { getFile, getGroup, getNextFile, patchFile, removeFromGroup, ungroupGroup, updateGroup, createGroup, addToGroup, streamUrl, thumbnailUrl, downloadUrl } from '@/api/client.js'
 import { useFolders } from '@/hooks/useFolders.js'
 import { useBulkActions } from '@/hooks/useBulkActions.js'
 import { useIsMobile } from '@/hooks/use-mobile.js'
 import { folderPath } from '@/lib/folders.js'
 import { useAuth } from '@/context/AuthContext.jsx'
 import { sourceLabel } from '@/lib/people.js'
+import { cn } from '@/lib/utils.js'
 
 function formatBytes(bytes) {
   if (!bytes) return null
@@ -38,7 +40,7 @@ function formatBytes(bytes) {
   return `${val.toFixed(i === 0 || val >= 10 ? 0 : 1)} ${units[i]}`
 }
 
-function InfoList({ file, folderLabel, onMove }) {
+function InfoList({ file, folderLabel, onMove, groupSection }) {
   const { enabled } = useAuth()
   const rows = [
     ['Type', file.file_type],
@@ -72,7 +74,112 @@ function InfoList({ file, folderLabel, onMove }) {
       </dd>
       <dt className="text-muted-foreground">Review</dt>
       <dd>{reviewed}</dd>
+      {groupSection}
     </dl>
+  )
+}
+
+// Undo of "Remove from group": put the clip back at its old position. When the group dissolved
+// (it needs two clips) it is created again in the same order.
+async function restoreMembership(gid, order, title) {
+  let exists = true
+  try { await getGroup(gid) } catch { exists = false }
+  if (!exists) { await createGroup(order, title); return }
+  await addToGroup(gid, order)
+  await updateGroup(gid, { order })
+}
+
+const clipsOf = (g) => (g?.members ?? []).filter((m) => !m.deleted_at)
+
+/** Thumbnail strip to move between the clips of a media group without leaving the Library context. */
+function GroupStrip({ group, currentId, onOpen }) {
+  const items = clipsOf(group)
+  const idx = items.findIndex((m) => String(m.id) === String(currentId))
+  const go = (d) => { if (items.length > 1 && idx !== -1) onOpen(items[(idx + d + items.length) % items.length].id) }
+  const stripRef = useRef(null)
+  useEffect(() => {
+    stripRef.current?.querySelector('[aria-current=true]')?.scrollIntoView({ block: 'nearest', inline: 'center' })
+  }, [currentId, items.length])
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!e.altKey || e.metaKey || e.ctrlKey || e.shiftKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return
+      if (e.target instanceof HTMLElement && e.target.closest('input, textarea, select, [contenteditable=true], [role=dialog]')) return
+      e.preventDefault()
+      go(e.key === 'ArrowLeft' ? -1 : 1)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  })
+  if (items.length < 2 || idx === -1) return null
+  return (
+    <nav aria-label={`Clips in ${group.title}`} className="shrink-0 rounded-xl bg-card p-2 ring-1 ring-foreground/10" data-testid="group-strip">
+      <div className="mb-1.5 flex items-center gap-2 text-xs">
+        <RiStackLine className="size-3.5 text-muted-foreground" />
+        <span className="min-w-0 flex-1 truncate font-medium" title={group.title}>{group.title}</span>
+        <span className="tabular-nums text-muted-foreground" aria-live="polite">Item {idx + 1} of {items.length}</span>
+        <Button variant="outline" size="icon-sm" onClick={() => go(-1)} aria-label="Previous item in group" title="Previous item (Alt+←)"><RiArrowLeftSLine /></Button>
+        <Button variant="outline" size="icon-sm" onClick={() => go(1)} aria-label="Next item in group" title="Next item (Alt+→)"><RiArrowRightSLine /></Button>
+      </div>
+      <ul ref={stripRef} className="flex gap-1.5 overflow-x-auto pb-0.5">
+        {items.map((m, i) => (
+          <li key={m.id} className="shrink-0">
+            <button
+              type="button"
+              onClick={() => onOpen(m.id)}
+              aria-label={`Item ${i + 1} of ${items.length}: ${m.filename}`}
+              aria-current={i === idx ? 'true' : undefined}
+              title={m.filename}
+              className={cn(
+                'relative block h-12 w-20 overflow-hidden rounded-md bg-muted outline-none ring-1 ring-foreground/10 focus-visible:ring-2 focus-visible:ring-ring',
+                i === idx ? 'ring-2 ring-primary' : 'opacity-70 hover:opacity-100'
+              )}
+            >
+              {thumbnailUrl(m) ? <img src={thumbnailUrl(m)} alt="" loading="lazy" draggable={false} className="size-full object-cover" /> : null}
+              <span className="absolute bottom-0.5 left-0.5 rounded bg-black/70 px-1 font-mono text-[0.625rem] text-white">{i + 1}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  )
+}
+
+/** Info tab rows for a clip that belongs to a group: inline rename, remove from group, ungroup. */
+function GroupInfo({ file, group, onRename, onRemove, onUngroup }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+  const [error, setError] = useState(null)
+  const title = group?.title ?? file.group_title
+  const save = async () => {
+    const t = draft.trim()
+    if (!t || t === title) { setEditing(false); return }
+    try { await onRename(t); setEditing(false); setError(null) } catch (err) { setError(err.message) }
+  }
+  return (
+    <>
+      <dt className="text-muted-foreground">Group</dt>
+      <dd className="grid gap-1.5">
+        {editing ? (
+          <span className="flex items-center gap-1">
+            <Input autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} aria-label="Group name" className="h-7"
+              onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} />
+            <Button size="icon-sm" variant="ghost" onClick={save} aria-label="Save group name"><RiCheckLine /></Button>
+            <Button size="icon-sm" variant="ghost" onClick={() => setEditing(false)} aria-label="Cancel rename"><RiCloseLine /></Button>
+          </span>
+        ) : (
+          <span className="flex items-center gap-1">
+            <RiStackLine className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 truncate" title={title} data-testid="group-title">{title}</span>
+            <Button size="icon-sm" variant="ghost" onClick={() => { setDraft(title); setEditing(true) }} aria-label="Rename group"><RiPencilLine /></Button>
+          </span>
+        )}
+        {error && <span role="alert" className="text-destructive">{error}</span>}
+        <span className="flex flex-wrap gap-1.5">
+          <Button size="xs" variant="outline" onClick={onRemove}>Remove from group</Button>
+          <Button size="xs" variant="outline" onClick={onUngroup}><RiLayoutGridLine data-icon="inline-start" /> Ungroup</Button>
+        </span>
+      </dd>
+    </>
   )
 }
 
@@ -90,6 +197,11 @@ export default function Player() {
   const [nextLoading, setNextLoading] = useState(false)
 
   const { data: file, isLoading, isError } = useQuery({ queryKey: ['file', id], queryFn: () => getFile(id) })
+  const { data: group } = useQuery({
+    queryKey: ['group', file?.group_id],
+    queryFn: () => getGroup(file.group_id),
+    enabled: !!file?.group_id,
+  })
   const layout = useDefaultLayout({ id: 'player-layout', storage: window.localStorage })
 
   const applyUpdate = useCallback((updated) => {
@@ -98,6 +210,33 @@ export default function Player() {
     qc.invalidateQueries({ queryKey: ['counts'] })
     qc.invalidateQueries({ queryKey: ['file', String(updated.id), 'history'] })
   }, [qc])
+
+  const openItem = useCallback((fid) => navigate(`/player/${fid}?${searchParams.toString()}`, { replace: true }), [navigate, searchParams])
+  const groupActions = {
+    rename: async (to) => {
+      const from = group?.title ?? file.group_title
+      await bulk.renameGroup(file.group_id, from, to)
+    },
+    remove: () => {
+      const gid = file.group_id, fid = file.id
+      const order = clipsOf(group).map((m) => m.id)
+      const title = group?.title
+      return bulk.run(
+        'Removed from the group',
+        () => removeFromGroup(gid, [fid]),
+        () => restoreMembership(gid, order, title),
+      )
+    },
+    ungroup: () => {
+      const order = clipsOf(group).map((m) => m.id)
+      const title = group?.title
+      return bulk.run(
+        `Ungrouped ${order.length} clips`,
+        () => ungroupGroup(file.group_id),
+        () => createGroup(order, title),
+      )
+    },
+  }
 
   useEffect(() => { setTab('tags') }, [id])
   useEffect(() => {
@@ -113,7 +252,7 @@ export default function Player() {
   const goNext = useCallback(async () => {
     setNextLoading(true)
     try {
-      const { nextId } = await getNextFile(id, Object.fromEntries(searchParams))
+      const { nextId } = await getNextFile(id, { ...Object.fromEntries(searchParams), collapse: '1' })
       navigate(`/player/${nextId}?${searchParams.toString()}`)
     } catch {
       toast.info('No other files in this view')
@@ -124,7 +263,7 @@ export default function Player() {
   const deleteCurrent = useCallback(async () => {
     if (!file) return
     let nextId = null
-    try { nextId = (await getNextFile(id, Object.fromEntries(searchParams))).nextId } catch {}
+    try { nextId = (await getNextFile(id, { ...Object.fromEntries(searchParams), collapse: '1' })).nextId } catch {}
     const ok = await bulk.deleteFiles([file])
     if (!ok) return
     if (nextId && String(nextId) !== String(id)) navigate(`/player/${nextId}?${searchParams.toString()}`, { replace: true })
@@ -259,6 +398,13 @@ export default function Player() {
     </div>
   )
 
+  const mediaWithStrip = file.group_id != null && clipsOf(group).length > 1 ? (
+    <div className="flex size-full min-h-0 flex-col gap-2">
+      <div className="min-h-0 flex-1">{media}</div>
+      <GroupStrip group={group} currentId={file.id} onOpen={openItem} />
+    </div>
+  ) : media
+
   const sidePanel = (
     <Tabs value={tab} onValueChange={setTab} className="h-full min-h-0 gap-0">
       <div className="flex items-center justify-between border-b px-3 py-2">
@@ -289,7 +435,8 @@ export default function Player() {
       </TabsContent>
       <TabsContent value="notes" className="min-h-0 flex-1 p-3"><NotesEditor file={file} onSaved={applyUpdate} /></TabsContent>
       <TabsContent value="info" className="min-h-0 flex-1">
-        <ScrollArea className="h-full"><div className="p-3"><InfoList file={file} folderLabel={folderLabel} onMove={() => setMoving(true)} /></div></ScrollArea>
+        <ScrollArea className="h-full"><div className="p-3"><InfoList file={file} folderLabel={folderLabel} onMove={() => setMoving(true)}
+          groupSection={file.group_id != null ? <GroupInfo file={file} group={group} onRename={groupActions.rename} onRemove={groupActions.remove} onUngroup={groupActions.ungroup} /> : null} /></div></ScrollArea>
       </TabsContent>
       <TabsContent value="history" className="min-h-0 flex-1">
         <ScrollArea className="h-full"><HistoryPanel fileId={file.id} /></ScrollArea>
@@ -303,6 +450,7 @@ export default function Player() {
       {isMobile ? (
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="aspect-video w-full p-2">{media}</div>
+          {file.group_id != null && clipsOf(group).length > 1 && <div className="px-2"><GroupStrip group={group} currentId={file.id} onOpen={openItem} /></div>}
           <div className="h-[28rem]">{sidePanel}</div>
         </div>
       ) : (
@@ -315,7 +463,7 @@ export default function Player() {
         >
           <ResizablePanel id="side" defaultSize="28%" minSize="20%" maxSize="50%">{sidePanel}</ResizablePanel>
           <ResizableHandle withHandle />
-          <ResizablePanel id="main" minSize="40%"><div className="size-full p-3">{media}</div></ResizablePanel>
+          <ResizablePanel id="main" minSize="40%"><div className="size-full p-3">{mediaWithStrip}</div></ResizablePanel>
         </ResizablePanelGroup>
       )}
 

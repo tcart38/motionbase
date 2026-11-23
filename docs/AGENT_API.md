@@ -54,7 +54,7 @@ curl -H "$AUTH" "$MB/files?cursor=120&limit=50"
 curl -H "$AUTH" $MB/files/42
 ```
 
-Query: `status`, `folder` (id, path or `none`), `subfolders` (`1` default, `0` = that folder only), `tags` (comma-separated tag ids), `search` (filename or notes), `favorites=1`, `uploader` (user id, or `none` for unknown), `limit`, `cursor`. A file contains `uploader` (display name of whoever added it, or `null`), `upload_source` (`user`, `import`, `scan` or `null`), `tags` (with `source`), `tags_by_category`, `folder_path`, `notes`, `review` and `urls`.
+Query: `status`, `folder` (id, path or `none`), `subfolders` (`1` default, `0` = that folder only), `tags` (comma-separated tag ids), `search` (filename or notes), `favorites=1`, `uploader` (user id, or `none` for unknown), `limit`, `cursor`. A file contains `group_id`, `group_title`, `group_position` and `group_size` (clips that belong to one media group, e.g. the items of a multi-item post; all `null` for ungrouped clips; the list is NOT collapsed, so every clip is returned and should be tagged on its own), `uploader` (display name of whoever added it, or `null`), `upload_source` (`user`, `import`, `scan` or `null`), `tags` (with `source`), `tags_by_category`, `folder_path`, `notes`, `review` and `urls`.
 
 ### Looking at a clip
 

@@ -46,7 +46,7 @@ export default function FolderTree() {
   const [params] = useSearchParams()
   const navigate = useNavigate()
   const { update, remove } = useFolderMutations()
-  const { moveToFolder } = useBulkActions()
+  const { moveToFolder } = useBulkActions({ groups: true })
 
   const [expanded, setExpanded] = useState(loadExpanded)
   const [dropTarget, setDropTarget] = useState(undefined) // folder id | 'none'

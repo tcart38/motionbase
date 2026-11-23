@@ -50,7 +50,7 @@ export function createServer(env = process.env, fetchImpl = fetch) {
     {}, async () => text(await call('GET', '/taxonomy')))
 
   tool('motionbase_list_files',
-    'List videos. status: pending (untouched), untagged, needs_review (AI-reviewed, awaiting the user), reviewed, all. Paginated: pass next_cursor back as cursor.',
+    'List videos (every clip separately; clips of one media group carry group_id/group_title/group_position, tag each one). status: pending (untouched), untagged, needs_review (AI-reviewed, awaiting the user), reviewed, all. Paginated: pass next_cursor back as cursor.',
     {
       status: z.enum(['pending', 'untagged', 'needs_review', 'reviewed', 'agent_reviewed', 'all']).optional(),
       folder: z.string().optional().describe('Folder id, folder path like "Brands/Acme", or "none" for unfiled'),

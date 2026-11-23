@@ -19,6 +19,7 @@ Never exported: the database file, API tokens, password hashes, sessions, `cooki
 
 - `relative_path` is the path relative to `MEDIA_DIR`; `folder_path` is the MotionBase folder (`A/B/C`).
 - `favorite`, `reviewed`, `in_trash` are `1`/`0`.
+- `group_title` / `group_position`: the media group of the clip (title, 0-based position) or empty. Restore re-creates a group from files that share a `group_title` and are not grouped yet (reported as `groups_created`).
 - `source_url` and `author` are read from the `Source:` / `Author:` lines the URL import writes into notes.
 - `tags` is every tag as `Category: Tag` joined by `; `; each category column holds that category's tags joined by `; `.
 
@@ -36,7 +37,7 @@ Never exported: the database file, API tokens, password hashes, sessions, `cooki
               "file_type": "video", "duration_seconds": 12.5, "width": 1920, "height": 1080, "fps": 30,
               "aspect_ratio": "16:9", "file_size_bytes": 123, "date_added": "...", "uploaded_by": "Ann",
               "upload_source": "upload", "favorite": true, "reviewed": true, "reviewed_by": "user",
-              "reviewed_at": "...", "in_trash": false, "notes": "...", "source_url": null, "author": null,
+              "reviewed_at": "...", "in_trash": false, "group_title": null, "group_position": null, "notes": "...", "source_url": null, "author": null,
               "tags": [{ "category": "Brand", "name": "Acme", "source": "user" }],
               "history": [{ "action": "tags_changed", "actor": "Ann", "created_at": "...", "detail": {} }] }]
 }

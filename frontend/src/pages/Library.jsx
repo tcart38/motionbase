@@ -19,8 +19,9 @@ import MoveToFolderDialog from '@/components/MoveToFolderDialog.jsx'
 import LibraryToolbar, { GRID_SIZES } from '@/components/library/LibraryToolbar.jsx'
 import FilterBar from '@/components/library/FilterBar.jsx'
 import BulkBar from '@/components/library/BulkBar.jsx'
+import GroupDialog from '@/components/GroupDialog.jsx'
 import PlayerDialog from '@/components/library/PlayerDialog.jsx'
-import { getFiles, getUserDirectory, patchFile } from '@/api/client.js'
+import { getFiles, getUserDirectory, bulkUpdateFiles } from '@/api/client.js'
 import { useAuth } from '@/context/AuthContext.jsx'
 import { useTaxonomy } from '@/hooks/useTaxonomy.js'
 import { useFolders } from '@/hooks/useFolders.js'
@@ -39,7 +40,7 @@ export default function Library() {
   const { groups, tags } = useTaxonomy()
   const { data: folderData } = useFolders()
   const { data: counts } = useFileCounts()
-  const bulk = useBulkActions()
+  const bulk = useBulkActions({ groups: true })
   const { enabled: loginOn, user: me } = useAuth()
 
   // Filters live in the URL: shareable, and they survive opening a video and coming back.
@@ -83,6 +84,7 @@ export default function Library() {
 
   const queryParams = useMemo(() => ({
     view: 'all',
+    collapse: '1',
     sort,
     order,
     tags: [...selectedTags].join(',') || undefined,
@@ -189,10 +191,12 @@ export default function Library() {
   // ----- Card actions
   const [playing, setPlaying] = useState(null)
   const [moveTarget, setMoveTarget] = useState(null) // array of file objects
+  const [groupDialog, setGroupDialog] = useState(null) // { mode: 'create', files } | { mode: 'rename', file }
 
   const handleFavorite = useCallback(async (file) => {
     try {
-      await patchFile(file.id, { is_favorite: file.is_favorite ? 0 : 1 })
+      // a group card favorites every clip of the group
+      await bulkUpdateFiles({ file_ids: [file.id], is_favorite: !file.is_favorite, expand_groups: true })
       qc.invalidateQueries({ queryKey: ['files'] })
     } catch (err) { toast.error(err.message) }
   }, [qc])
@@ -206,6 +210,9 @@ export default function Library() {
   const handleMoveOne = useCallback((file) => setMoveTarget([file]), [])
   const handleDeleteOne = useCallback((file) => { setSelectedIds((s) => { const n = new Set(s); n.delete(file.id); return n }); return bulk.deleteFiles([file]) }, [bulk])
   const handleMarkReviewedOne = useCallback((file) => bulk.markReviewed([file]), [bulk])
+
+  const handleRenameGroup = useCallback((file) => setGroupDialog({ mode: 'rename', file }), [])
+  const handleUngroupOne = useCallback((file) => bulk.ungroupFiles([file]), [bulk])
 
   const handleRandom = () => {
     if (!files.length) return
@@ -261,7 +268,7 @@ export default function Library() {
             <h1 className="text-lg font-semibold leading-tight tracking-tight">{title}</h1>
           </div>
           <p className="pb-0.5 text-xs text-muted-foreground" aria-live="polite">
-            {query.isLoading ? 'Loading…' : `${total.toLocaleString()} ${total === 1 ? 'file' : 'files'}`}
+            {query.isLoading ? 'Loading…' : `${total.toLocaleString()} ${total === 1 ? 'item' : 'items'}`}
           </p>
           {folder && folder !== 'none' && (
             <div className="ml-auto flex items-center gap-2 pb-0.5">
@@ -342,6 +349,8 @@ export default function Library() {
                   onMove={handleMoveOne}
                   onMarkReviewed={handleMarkReviewedOne}
                   onDelete={handleDeleteOne}
+                  onRenameGroup={handleRenameGroup}
+                  onUngroup={handleUngroupOne}
                 />
               ))}
             </div>
@@ -364,6 +373,8 @@ export default function Library() {
             onFavorite={(v) => bulk.setFavorite(selectedFiles, v)}
             onMarkReviewed={async () => { if (await bulk.markReviewed(selectedFiles)) clearSelection() }}
             onDelete={async () => { if (await bulk.deleteFiles(selectedFiles)) clearSelection() }}
+            onGroup={() => setGroupDialog({ mode: 'create', files: selectedFiles })}
+            onUngroup={async () => { if (await bulk.ungroupFiles(selectedFiles)) clearSelection() }}
           />
         )}
       </div>
@@ -375,6 +386,19 @@ export default function Library() {
         onSelect={async (id, f) => {
           const ok = await bulk.moveToFolder(moveTarget, id, f?.name)
           if (ok && moveTarget.length > 1) clearSelection()
+        }}
+      />
+      <GroupDialog
+        open={!!groupDialog}
+        onOpenChange={(o) => !o && setGroupDialog(null)}
+        mode={groupDialog?.mode}
+        initialTitle={groupDialog?.mode === 'rename' ? groupDialog.file.group_title ?? '' : ''}
+        count={groupDialog?.files?.length}
+        onSubmit={async (t) => {
+          if (groupDialog.mode === 'rename') {
+            const f = groupDialog.file
+            if (t !== f.group_title) await bulk.renameGroup(f.group_id, f.group_title, t)
+          } else if (await bulk.groupFiles(groupDialog.files, t)) clearSelection()
         }}
       />
       <PlayerDialog file={playing} onOpenChange={(o) => !o && setPlaying(null)} />

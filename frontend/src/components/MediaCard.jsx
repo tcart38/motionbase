@@ -2,7 +2,7 @@ import React, { memo, useCallback, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import {
   RiPlayFill, RiImageLine, RiFilmLine, RiStarLine, RiStarFill, RiSparklingLine, RiExternalLinkLine,
-  RiFolderTransferLine, RiDeleteBinLine, RiCheckDoubleLine,
+  RiFolderTransferLine, RiDeleteBinLine, RiCheckDoubleLine, RiStackLine, RiEditLine, RiLayoutGridLine,
 } from '@remixicon/react'
 import { Badge } from '@/components/ui/badge.jsx'
 import { Checkbox } from '@/components/ui/checkbox.jsx'
@@ -33,6 +33,7 @@ const isNewFile = (file) => file.date_added && (Date.now() - new Date(file.date_
  */
 function MediaCard({
   file, selectMode, selected, onSelect, onFavoriteToggle, onPlay, onDragStartFiles, onMove, onMarkReviewed, onDelete,
+  onRenameGroup, onUngroup,
 }) {
   const location = useLocation()
   const { enabled: loginOn } = useAuth()
@@ -47,6 +48,8 @@ function MediaCard({
   const aiTagged = file.tags?.some((t) => t.source === 'agent')
   const visibleTags = (file.tags ?? []).filter((t) => t.category_name !== 'Aspect Ratio')
   const to = `/player/${file.id}${location.search}`
+  const grouped = file.group_id != null && file.group_size > 1
+  const label = grouped ? file.group_title || file.filename : file.filename
 
   const onMouseMove = useCallback((e) => {
     if (!scrubbable) return
@@ -65,14 +68,14 @@ function MediaCard({
     }
   }
 
-  return (
+  const card = (
     <ContextMenu>
       <ContextMenuTrigger
         render={
           <article
             draggable
             onDragStart={(e) => onDragStartFiles(e, file)}
-            aria-label={file.filename}
+            aria-label={grouped ? `${label}, group of ${file.group_size} clips` : file.filename}
             data-selected={selected || undefined}
             className={cn(
               'group/card relative overflow-hidden rounded-xl bg-card text-card-foreground ring-1 ring-foreground/10 transition-shadow',
@@ -124,7 +127,7 @@ function MediaCard({
             to={to}
             onClick={onLinkClick}
             draggable={false}
-            aria-label={`${selectMode ? 'Select' : 'Open'} ${file.filename}`}
+            aria-label={`${selectMode ? 'Select' : 'Open'} ${label}`}
             className="absolute inset-0 z-10 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
           />
 
@@ -137,7 +140,7 @@ function MediaCard({
               checked={!!selected}
               onCheckedChange={() => onSelect(file, { shift: false })}
               onClick={(e) => { if (e.shiftKey) { e.preventDefault(); onSelect(file, { shift: true }) } }}
-              aria-label={`Select ${file.filename}`}
+              aria-label={`Select ${label}`}
               className="bg-background/80 backdrop-blur-sm"
             />
           </div>
@@ -164,11 +167,17 @@ function MediaCard({
               variant="ghost"
               size="icon-lg"
               onClick={() => onPlay(file)}
-              aria-label={`Play ${file.filename} in place`}
+              aria-label={`Play ${label} in place`}
               className="absolute inset-0 z-20 m-auto rounded-full bg-black/55 text-white opacity-0 transition-opacity hover:bg-black/75 hover:text-white group-hover/card:opacity-100 focus-visible:opacity-100"
             >
               <RiPlayFill />
             </Button>
+          )}
+
+          {grouped && (
+            <Badge className="pointer-events-none absolute bottom-1.5 left-1.5 z-20 bg-black/70 text-white" data-testid="group-badge">
+              <RiStackLine /> {file.group_size} clips
+            </Badge>
           )}
 
           {duration && (
@@ -185,7 +194,7 @@ function MediaCard({
         </div>
 
         <div className="space-y-1.5 p-2.5">
-          <p className="truncate text-xs font-medium" title={file.filename}>{file.filename}</p>
+          <p className="truncate text-xs font-medium" title={grouped ? `${label} (${file.group_size} clips)` : file.filename}>{label}</p>
           {(loginOn || file.uploader) && (
             <p className="flex items-center gap-1 truncate text-[0.625rem] text-muted-foreground" data-testid="uploader"
               title={file.uploader ? `Added by ${file.uploader.display_name}` : uploaderLabel(file) ?? 'Uploader unknown'}>
@@ -218,14 +227,31 @@ function MediaCard({
           {file.is_favorite ? <RiStarLine /> : <RiStarFill />} {file.is_favorite ? 'Remove favorite' : 'Favorite'}
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem onClick={() => onMove(file)}><RiFolderTransferLine /> Move to folder…</ContextMenuItem>
+        {grouped && onRenameGroup && (
+          <ContextMenuItem onClick={() => onRenameGroup(file)}><RiEditLine /> Rename group…</ContextMenuItem>
+        )}
+        {grouped && onUngroup && (
+          <ContextMenuItem onClick={() => onUngroup(file)}><RiLayoutGridLine /> Ungroup</ContextMenuItem>
+        )}
+        {grouped && (onRenameGroup || onUngroup) && <ContextMenuSeparator />}
+        <ContextMenuItem onClick={() => onMove(file)}><RiFolderTransferLine /> Move {grouped ? 'group ' : ''}to folder…</ContextMenuItem>
         {!file.reviewed_at && (
           <ContextMenuItem onClick={() => onMarkReviewed(file)}><RiCheckDoubleLine /> Mark reviewed</ContextMenuItem>
         )}
       <ContextMenuSeparator />
-        <ContextMenuItem variant="destructive" onClick={() => onDelete?.(file)}><RiDeleteBinLine /> Move to Trash</ContextMenuItem>
+        <ContextMenuItem variant="destructive" onClick={() => onDelete?.(file)}><RiDeleteBinLine /> Move {grouped ? 'group ' : ''}to Trash</ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
+  )
+
+  if (!grouped) return card
+  // Stacked-card look: two offset layers peek out below and beside the card.
+  return (
+    <div className="relative pb-2.5" data-group={file.group_id}>
+      <div aria-hidden className="absolute inset-x-3 bottom-0 top-3 rounded-xl bg-muted ring-1 ring-foreground/10" />
+      <div aria-hidden className="absolute inset-x-1.5 bottom-[5px] top-1.5 rounded-xl bg-card ring-1 ring-foreground/15" />
+      <div className="relative">{card}</div>
+    </div>
   )
 }
 

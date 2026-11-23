@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   RiUploadCloud2Line, RiPriceTag3Line, RiStickyNoteLine, RiFolderTransferLine, RiStarLine, RiCheckDoubleLine,
-  RiEditLine, RiDeleteBinLine, RiArrowGoBackLine, RiSparklingLine, RiHistoryLine, RiRestartLine, RiEyeOffLine,
+  RiEditLine, RiDeleteBinLine, RiArrowGoBackLine, RiSparklingLine, RiHistoryLine, RiRestartLine, RiEyeOffLine, RiStackLine, RiLayoutGridLine,
 } from '@remixicon/react'
 import { Badge } from '@/components/ui/badge.jsx'
 import { Button } from '@/components/ui/button.jsx'
@@ -23,6 +23,9 @@ const ICONS = {
   restored: RiRestartLine,
   agent_update: RiSparklingLine,
   reverted: RiArrowGoBackLine,
+  grouped: RiStackLine,
+  ungrouped: RiLayoutGridLine,
+  group_renamed: RiEditLine,
 }
 
 const folderName = (p) => (p ? p.replaceAll('/', ' / ') : 'Unfiled')
@@ -99,6 +102,9 @@ function summarize(e, uploaded) {
     case 'reviewed': return <>Marked as reviewed</>
     case 'unreviewed': return <>Marked as not reviewed</>
     case 'renamed': return <>Renamed from <span className="font-mono">{d.from}</span> to <span className="font-mono">{d.to}</span></>
+    case 'grouped': return <>Added to the group <b>{d.title}</b></>
+    case 'ungrouped': return <>{d.reason === 'too_small' ? 'Group dissolved' : 'Removed from the group'}{d.title ? <> <b>{d.title}</b></> : null}</>
+    case 'group_renamed': return <>Group renamed from <b>{d.from}</b> to <b>{d.to}</b></>
     case 'trashed': return <>Moved to Trash</>
     case 'restored': return <>Restored from Trash</>
     case 'agent_update': return <>Reviewed by the agent{d.awaiting_confirmation ? ', waiting for your confirmation' : ''}</>

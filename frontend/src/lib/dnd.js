@@ -3,7 +3,7 @@ export const FILES_MIME = 'application/x-motionbase-files'
 
 // The payload carries just enough (id, folder_id) to move the files and to undo the move.
 export function setDragFiles(e, files) {
-  const slim = files.map((f) => ({ id: f.id, folder_id: f.folder_id ?? null }))
+  const slim = files.map((f) => ({ id: f.id, folder_id: f.folder_id ?? null, group_id: f.group_size > 1 ? f.group_id : null }))
   e.dataTransfer.setData(FILES_MIME, JSON.stringify(slim))
   e.dataTransfer.setData('text/plain', `${slim.length} file${slim.length === 1 ? '' : 's'}`)
   e.dataTransfer.effectAllowed = 'move'
