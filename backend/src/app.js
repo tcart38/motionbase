@@ -11,6 +11,9 @@ import settingsRouter from './routes/settings.js'
 import importRouter from './routes/import.js'
 import uploadRouter from './routes/upload.js'
 import foldersRouter from './routes/folders.js'
+import tokensRouter from './routes/tokens.js'
+import activityRouter from './routes/activity.js'
+import agentRouter from './routes/agent.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -31,6 +34,9 @@ export function createApp({ serveFrontend = config.isProd } = {}) {
   app.use('/api/import', importRouter)
   app.use('/api/upload', uploadRouter)
   app.use('/api/folders', foldersRouter)
+  app.use('/api/tokens', tokensRouter)
+  app.use('/api/activity', activityRouter)
+  app.use('/api/agent/v1', agentRouter)
 
   // Serve built frontend in production (Docker)
   if (serveFrontend) {
@@ -45,7 +51,7 @@ export function createApp({ serveFrontend = config.isProd } = {}) {
   app.use((err, req, res, next) => {
     if (res.headersSent) return next(err)
     const status = err.status || err.statusCode || 500
-    if (status >= 500) console.error(err)
+    if (status === 500) console.error(err)
     res.status(status).json({ error: status >= 500 ? 'Internal server error' : err.message })
   })
 

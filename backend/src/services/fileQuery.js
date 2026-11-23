@@ -1,8 +1,15 @@
+const UNTAGGED_SQL = `NOT EXISTS (
+        SELECT 1 FROM file_tags ft
+        JOIN tags t ON t.id = ft.tag_id
+        JOIN tag_categories c ON c.id = t.category_id
+        WHERE ft.file_id = f.id AND c.is_system = 0
+      )`
+
 export const SORT_COLUMNS = { date_added: 'f.date_added', filename: 'f.filename', duration: 'f.duration' }
 
 // Shared WHERE-clause builder for the file list and the filter-aware "next file" lookup.
 // Tag filtering is AND-across-categories, OR-within-category.
-export function buildFileFilter(db, { view = 'all', tags = '', search = '', favorites = '', untagged = '', folder = '', subfolders = '' } = {}) {
+export function buildFileFilter(db, { view = 'all', tags = '', search = '', favorites = '', untagged = '', folder = '', subfolders = '', status = '' } = {}) {
   const tagIds = tags ? String(tags).split(',').map(Number).filter(Boolean) : []
   const tagConditions = []
   const tagParams = []
@@ -51,14 +58,16 @@ export function buildFileFilter(db, { view = 'all', tags = '', search = '', favo
 
   // "Untagged" ignores the auto-applied Aspect Ratio category (is_system = 1) —
   // a file with only its aspect ratio tag still counts as having no real tags.
-  const untaggedCondition = untagged === '1'
-    ? `NOT EXISTS (
-        SELECT 1 FROM file_tags ft
-        JOIN tags t ON t.id = ft.tag_id
-        JOIN tag_categories c ON c.id = t.category_id
-        WHERE ft.file_id = f.id AND c.is_system = 0
-      )`
-    : null
+  const untaggedCondition = untagged === '1' ? UNTAGGED_SQL : null
+
+  // Review status (used by the agent API)
+  const STATUS = {
+    pending: 'f.reviewed_at IS NULL AND f.agent_reviewed_at IS NULL',
+    needs_review: 'f.agent_reviewed_at IS NOT NULL AND f.reviewed_at IS NULL',
+    agent_reviewed: 'f.agent_reviewed_at IS NOT NULL',
+    reviewed: 'f.reviewed_at IS NOT NULL',
+  }
+  const statusCondition = STATUS[status] || null
 
   const where = [
     'f.is_missing = 0',
@@ -67,6 +76,8 @@ export function buildFileFilter(db, { view = 'all', tags = '', search = '', favo
     search.trim() ? '(f.filename LIKE ? OR f.notes LIKE ?)' : null,
     folderCondition,
     untaggedCondition,
+    status === 'untagged' ? UNTAGGED_SQL : null,
+    statusCondition,
     ...tagConditions,
   ].filter(Boolean).join(' AND ')
 
@@ -79,7 +90,7 @@ export function attachTags(db, rows) {
   const tagsByFile = {}
   if (fileIds.length > 0) {
     const tagData = db.prepare(`
-      SELECT ft.file_id, t.id, t.name, t.category_id, c.name AS category_name
+      SELECT ft.file_id, ft.source, t.id, t.name, t.category_id, c.name AS category_name
       FROM file_tags ft
       JOIN tags t ON t.id = ft.tag_id
       JOIN tag_categories c ON c.id = t.category_id
@@ -89,7 +100,7 @@ export function attachTags(db, rows) {
 
     for (const t of tagData) {
       ;(tagsByFile[t.file_id] = tagsByFile[t.file_id] || []).push({
-        id: t.id, name: t.name, category_id: t.category_id, category_name: t.category_name,
+        id: t.id, name: t.name, category_id: t.category_id, category_name: t.category_name, source: t.source,
       })
     }
   }

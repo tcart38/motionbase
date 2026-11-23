@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "openapi": "node scripts/generate-openapi.js"
   },
   "dependencies": {
     "better-sqlite3": "^11.0.0",

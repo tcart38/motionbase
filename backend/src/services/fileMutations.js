@@ -51,7 +51,7 @@ export function mergeNotes(existing, incoming, mode = 'replace') {
 // changes: { needs_tagging, tag_ids, add_tag_ids, remove_tag_ids, is_favorite,
 //            notes, notes_mode, folder_id, mark_reviewed }
 // Caller must validate that referenced tag/folder ids exist and run inside a transaction.
-export function applyFileUpdate(db, file, changes, { actor = 'user', systemIds } = {}) {
+export function applyFileUpdate(db, file, changes, { actor = 'user', systemIds, requireConfirmation = false } = {}) {
   const { needs_tagging, is_favorite, notes, notes_mode, folder_id, mark_reviewed } = changes
   const isAgent = actor !== 'user'
 
@@ -73,6 +73,16 @@ export function applyFileUpdate(db, file, changes, { actor = 'user', systemIds }
     const sys = systemIds || getSystemTagIds(db)
     const next = computeTagSet(getFileTagIds(db, file.id), changes, { systemIds: sys, protectSystem: isAgent })
     setFileTags(db, file.id, next, isAgent ? 'agent' : 'user')
+  }
+
+  if (isAgent && mark_reviewed) {
+    // Agents always stamp agent_reviewed_at and release any lease. Unless the user wants to
+    // confirm AI work first, that also counts as reviewed (the file leaves the Inbox).
+    db.prepare(`
+      UPDATE files SET agent_reviewed_at = datetime('now'), lease_owner = NULL, lease_until = NULL WHERE id = ?
+    `).run(file.id)
+    if (!requireConfirmation) markReviewed(db, file.id, actor)
+    return
   }
 
   if (needs_tagging !== undefined) {

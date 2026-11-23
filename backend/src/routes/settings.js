@@ -19,13 +19,21 @@ router.get('/', (req, res) => {
 
 router.put('/', (req, res) => {
   const db = getDb()
-  const { scan_interval } = req.body
+  const { scan_interval, agent_requires_confirmation } = req.body
 
   if (scan_interval !== undefined) {
     const val = parseInt(scan_interval, 10)
     if (isNaN(val) || val < 0) return res.status(400).json({ error: 'Invalid scan_interval' })
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('scan_interval', ?)").run(String(val))
     reschedule()
+  }
+
+  if (agent_requires_confirmation !== undefined) {
+    if (typeof agent_requires_confirmation !== 'boolean') {
+      return res.status(400).json({ error: 'agent_requires_confirmation must be a boolean' })
+    }
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('agent_requires_confirmation', ?)")
+      .run(String(agent_requires_confirmation))
   }
 
   const rows = db.prepare('SELECT key, value FROM settings').all()
