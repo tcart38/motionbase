@@ -2,13 +2,16 @@ import { Router } from 'express'
 import { createReadStream, statSync, renameSync, existsSync, rmSync } from 'fs'
 import path from 'path'
 import { getDb } from '../db/index.js'
-import { orderBy, buildFileFilter, attachTags, getFileWithTags } from '../services/fileQuery.js'
+import { orderBy, buildFileFilter, attachTags, getFileWithTags, collapsedSource } from '../services/fileQuery.js'
 import { config } from '../config.js'
 import { HttpError } from '../services/errors.js'
 import { applyFileUpdate, validateChanges } from '../services/fileMutations.js'
 import { requireAdmin } from '../middleware/session.js'
 import { actorFromReq, recordEvent, getHistory } from '../services/history.js'
 import { audit, userActor } from '../services/auth.js'
+import { expandGroups, dissolveIfSmall } from '../services/groups.js'
+
+const truthy = (v) => v === true || v === 1 || ['1', 'true', 'yes'].includes(String(v).toLowerCase())
 
 const router = Router()
 
@@ -31,6 +34,8 @@ router.get('/', (req, res) => {
     source = '',
     trash = '',
     uploader = '',
+    group = '',
+    collapse = '',
   } = req.query
 
   const sortDir = order === 'asc' ? 'ASC' : 'DESC'
@@ -38,17 +43,20 @@ router.get('/', (req, res) => {
   const offset = (Math.max(1, parseInt(page, 10)) - 1) * Math.max(1, parseInt(limit, 10))
   const limitVal = Math.max(1, parseInt(limit, 10))
 
-  const { where, params: allParams } = buildFileFilter(db, { view, tags, search, favorites, untagged, folder, subfolders, status, source, trash, uploader })
+  const { where, params: allParams } = buildFileFilter(db, { view, tags, search, favorites, untagged, folder, subfolders, status, source, trash, uploader, group })
 
-  const countSql = `SELECT COUNT(*) AS total FROM files f WHERE ${where}`
-  const { total } = db.prepare(countSql).get(...allParams)
-
-  const rows = db.prepare(`
-    SELECT f.* FROM files f
-    WHERE ${where}
-    ORDER BY ${orderBy(sort, order)}
-    LIMIT ? OFFSET ?
-  `).all(...allParams, limitVal, offset)
+  let total, rows
+  if (truthy(collapse)) {
+    const c = collapsedSource(where)
+    total = db.prepare(`${c.with} SELECT COUNT(*) AS total FROM ${c.from}`).get(...allParams).total
+    rows = db.prepare(`${c.with} SELECT f.* FROM ${c.from} ORDER BY ${orderBy(sort, order)}, f.id ${sortDir} LIMIT ? OFFSET ?`).all(...allParams, limitVal, offset)
+    for (const r of rows) delete r.rn
+  } else {
+    total = db.prepare(`SELECT COUNT(*) AS total FROM files f WHERE ${where}`).get(...allParams).total
+    // A group's members list in their group order
+    const ord = group !== '' ? 'f.group_position IS NULL, f.group_position, f.id' : orderBy(sort, order)
+    rows = db.prepare(`SELECT f.* FROM files f WHERE ${where} ORDER BY ${ord} LIMIT ? OFFSET ?`).all(...allParams, limitVal, offset)
+  }
 
   const files = attachTags(db, rows)
 
@@ -72,9 +80,15 @@ router.get('/counts', (req, res) => {
 // Soft delete (default) or restore. Nothing is removed from disk; the scanner keeps ignoring trashed files.
 router.post('/trash', (req, res) => {
   const db = getDb()
-  const { file_ids, deleted = true } = req.body || {}
+  const { deleted = true, expand_groups } = req.body || {}
+  let { file_ids } = req.body || {}
   if (!Array.isArray(file_ids) || file_ids.length === 0 || file_ids.length > 500 || !file_ids.every(Number.isInteger)) {
     throw new HttpError(400, 'file_ids must be 1-500 integers')
+  }
+  // expand_groups: acting on one member of a group acts on all of its live (or, for a restore, trashed) members
+  if (truthy(expand_groups)) {
+    file_ids = expandGroups(db, file_ids, { live: !!deleted })
+    if (file_ids.length > 500) throw new HttpError(413, 'At most 500 files per request')
   }
   const stamp = deleted ? new Date().toISOString() : null
   const updated = db.transaction(() => {
@@ -89,7 +103,7 @@ router.post('/trash', (req, res) => {
     }
     return n
   })()
-  res.json({ updated, deleted: !!deleted })
+  res.json({ updated, deleted: !!deleted, file_ids })
 })
 
 // POST /api/files/purge { file_ids } or { all: true }
@@ -117,6 +131,7 @@ router.post('/purge', requireAdmin, (req, res) => {
       continue
     }
     db.prepare('DELETE FROM files WHERE id = ?').run(file.id)
+    if (file.group_id) dissolveIfSmall(db, file.group_id, actorFromReq(req), { countTrashed: true })
     try { rmSync(file.thumbnail_path || path.join(config.thumbnailsDir, `${file.id}.jpg`), { force: true }) } catch {}
     try { rmSync(path.join(config.framesDir, String(file.id)), { recursive: true, force: true }) } catch {}
     purged.push(file.id)
@@ -135,11 +150,16 @@ router.post('/purge', requireAdmin, (req, res) => {
 // Applied atomically: either every file is updated or none.
 router.post('/bulk', (req, res) => {
   const db = getDb()
-  const { file_ids, add_tag_ids, remove_tag_ids, folder_id, is_favorite, mark_reviewed } = req.body
+  const { file_ids, add_tag_ids, remove_tag_ids, folder_id, is_favorite, mark_reviewed, expand_groups } = req.body
   if (!Array.isArray(file_ids) || file_ids.length === 0) throw new HttpError(400, 'file_ids must be a non-empty array')
   if (file_ids.length > 500) throw new HttpError(413, 'At most 500 files per request')
-  const ids = [...new Set(file_ids.map(Number))]
+  let ids = [...new Set(file_ids.map(Number))]
   if (ids.some((n) => !Number.isInteger(n))) throw new HttpError(400, 'file_ids must be integers')
+  // expand_groups: each id stands for all live members of its group
+  if (truthy(expand_groups)) {
+    ids = expandGroups(db, ids)
+    if (ids.length > 500) throw new HttpError(413, 'At most 500 files per request')
+  }
 
   const changes = { add_tag_ids, remove_tag_ids, folder_id, is_favorite, mark_reviewed: mark_reviewed || undefined }
   validateChanges(db, changes)
@@ -155,7 +175,7 @@ router.post('/bulk', (req, res) => {
     }
     return n
   })()
-  res.json({ updated })
+  res.json({ updated, file_ids: ids })
 })
 
 // GET /api/files/:id/history -> { events: [{id, action, actor:{user_id,label}, detail, created_at}], uploaded:{at, by, source} }
@@ -171,25 +191,36 @@ router.get('/:id', (req, res) => {
   res.json(file)
 })
 
-// GET /api/files/:id/next — id of the next file in the current filtered/sorted view (wraps around)
+// GET /api/files/:id/next — id of the next file in the current filtered/sorted view (wraps around).
+// collapse=1 steps over groups: the rest of the current file's group is skipped.
 router.get('/:id/next', (req, res) => {
   const db = getDb()
-  const { view = 'all', tags = '', sort = 'date_added', order = 'desc', search = '', favorites = '', untagged = '', folder = '', subfolders = '', status = '', source = '', trash = '', uploader = '' } = req.query
+  const { view = 'all', tags = '', sort = 'date_added', order = 'desc', search = '', favorites = '', untagged = '', folder = '', subfolders = '', status = '', source = '', trash = '', uploader = '', collapse = '' } = req.query
 
   const sortDir = order === 'asc' ? 'ASC' : 'DESC'
 
   const { where, params } = buildFileFilter(db, { view, tags, search, favorites, untagged, folder, subfolders, status, source, trash, uploader })
 
-  const ids = db.prepare(`
-    SELECT f.id FROM files f WHERE ${where} ORDER BY ${orderBy(sort, order)}, f.id ${sortDir}
-  `).all(...params).map((r) => r.id)
+  let list
+  if (truthy(collapse)) {
+    const c = collapsedSource(where)
+    list = db.prepare(`${c.with} SELECT f.id, f.group_id FROM ${c.from} ORDER BY ${orderBy(sort, order)}, f.id ${sortDir}`).all(...params)
+  } else {
+    list = db.prepare(`SELECT f.id, f.group_id FROM files f WHERE ${where} ORDER BY ${orderBy(sort, order)}, f.id ${sortDir}`).all(...params)
+  }
 
-  if (ids.length === 0) return res.status(404).json({ error: 'No files match the current filter' })
+  if (list.length === 0) return res.status(404).json({ error: 'No files match the current filter' })
 
-  const currentIdx = ids.indexOf(Number(req.params.id))
-  const nextId = currentIdx === -1 ? ids[0] : ids[(currentIdx + 1) % ids.length]
+  const curId = Number(req.params.id)
+  let currentIdx = list.findIndex((r) => r.id === curId)
+  if (currentIdx === -1 && truthy(collapse)) {
+    // the current file is another member of a collapsed group: continue from the group's entry
+    const gid = db.prepare('SELECT group_id FROM files WHERE id = ?').get(curId)?.group_id
+    if (gid) currentIdx = list.findIndex((r) => r.group_id === gid)
+  }
+  const nextId = currentIdx === -1 ? list[0].id : list[(currentIdx + 1) % list.length].id
 
-  res.json({ nextId, total: ids.length })
+  res.json({ nextId, total: list.length })
 })
 
 // PATCH /api/files/:id — update needs_tagging, tags, or filename
@@ -229,6 +260,7 @@ router.delete('/:id', (req, res) => {
   const file = db.prepare('SELECT * FROM files WHERE id = ?').get(req.params.id)
   if (!file) return res.status(404).json({ error: 'Not found' })
   db.prepare('DELETE FROM files WHERE id = ?').run(file.id)
+  if (file.group_id) dissolveIfSmall(db, file.group_id, actorFromReq(req), { countTrashed: true })
   audit(db, userActor(req.user), 'purge', { count: 1, record_only: true, files: [{ id: file.id, filename: file.filename }] })
   // Remove derived artifacts (thumbnail + cached frames); the media file itself is untouched.
   try { rmSync(file.thumbnail_path || path.join(config.thumbnailsDir, `${file.id}.jpg`), { force: true }) } catch {}

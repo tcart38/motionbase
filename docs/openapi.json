@@ -1258,6 +1258,33 @@
               null
             ]
           },
+          "group_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Media group this clip belongs to (e.g. the items of one post), else null."
+          },
+          "group_title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "group_position": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "0-based position within the group."
+          },
+          "group_size": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Live (non-trashed) members of the group."
+          },
           "folder_id": {
             "type": [
               "integer",

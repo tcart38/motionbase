@@ -6,6 +6,7 @@ import { config } from '../config.js'
 import { HttpError } from './errors.js'
 import { ensurePath } from './folders.js'
 import { recordEvent } from './history.js'
+import { createGroup } from './groups.js'
 
 class DryRun extends Error {}
 
@@ -29,7 +30,7 @@ export function importMetadata(db, doc, { dryRun = false, overwriteNotes = false
     dry_run: !!dryRun, total: doc.files.length, matched: 0, matched_by_path: 0, matched_by_name_size: 0,
     unmatched: [], unmatched_count: 0, files_changed: 0,
     categories_created: 0, tags_created: 0, tags_added: 0, folders_created: 0, folders_set: 0,
-    notes_set: 0, notes_skipped: 0, favorites_set: 0, reviewed_set: 0, errors: [],
+    notes_set: 0, notes_skipped: 0, favorites_set: 0, reviewed_set: 0, groups_created: 0, errors: [],
   }
   const err = (m) => { if (result.errors.length < 20) result.errors.push(m) }
 
@@ -76,8 +77,8 @@ export function importMetadata(db, doc, { dryRun = false, overwriteNotes = false
     }
 
     // 3. Files.
-    const byPath = db.prepare('SELECT id, notes, folder_id, is_favorite, reviewed_at FROM files WHERE filepath = ?')
-    const byId = db.prepare('SELECT id, notes, folder_id, is_favorite, reviewed_at FROM files WHERE id = ?')
+    const byPath = db.prepare('SELECT id, notes, folder_id, is_favorite, reviewed_at, group_id FROM files WHERE filepath = ?')
+    const byId = db.prepare('SELECT id, notes, folder_id, is_favorite, reviewed_at, group_id FROM files WHERE id = ?')
     let nameSize = null // lazily built: "filename\0size" -> [ids]
     const lookupNameSize = (filename, size) => {
       if (!nameSize) {
@@ -93,6 +94,8 @@ export function importMetadata(db, doc, { dryRun = false, overwriteNotes = false
       return ids.length === 1 ? ids[0] : null
     }
     const addLink = db.prepare('INSERT OR IGNORE INTO file_tags (file_id, tag_id, source) VALUES (?, ?, ?)')
+
+    const wantGroups = new Map() // title -> [{ id, pos }] of matched files not yet in a group
 
     for (const rec of doc.files) {
       const filename = str(rec?.filename)
@@ -165,10 +168,23 @@ export function importMetadata(db, doc, { dryRun = false, overwriteNotes = false
         detail.reviewed = true
       }
 
+      const gt = str(rec.group_title)?.trim()
+      if (gt && row.group_id == null) {
+        if (!wantGroups.has(gt)) wantGroups.set(gt, [])
+        wantGroups.get(gt).push({ id: row.id, pos: Number.isInteger(rec.group_position) ? rec.group_position : 1e9 })
+      }
+
       if (Object.keys(detail).length) {
         result.files_changed++
         if (!dryRun) recordEvent(db, row.id, by, 'metadata_imported', detail)
       }
+    }
+    // 4. Groups: files that shared a group_title in the export and are not grouped yet.
+    for (const [title, members] of wantGroups) {
+      if (members.length < 2) continue
+      members.sort((a, b) => a.pos - b.pos || a.id - b.id)
+      createGroup(db, members.map((m) => m.id), { title, by })
+      result.groups_created++
     }
     if (dryRun) throw new DryRun()
   })

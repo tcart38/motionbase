@@ -8,6 +8,7 @@ import { applyImportMeta } from '../services/importMeta.js'
 import { runScan, claimUpload, listMediaFiles } from '../services/scanner.js'
 import { actorFromReq } from '../services/history.js'
 import { getCookiesPath } from './cookies.js'
+import { groupImportedFiles, postGroupTitle } from '../services/groups.js'
 import { isLinkedInUrl, fetchPage, extractLinkedInPost, downloadLinkedInItems } from '../services/linkedinPost.js'
 
 const router = Router()
@@ -87,6 +88,12 @@ router.post('/', async (req, res) => {
     await finish()
     const db = getDb()
     for (const f of files) db.prepare("UPDATE files SET notes = ? WHERE filename = ? AND (notes IS NULL OR TRIM(notes) = '')").run(f.notes, f.filename)
+    if (files.length > 1) {
+      try {
+        const gid = groupImportedFiles(db, files.map((f) => f.filename), { title: postGroupTitle(page.post), by, userId: req.user?.id ?? null })
+        if (gid) log(`Grouped the ${files.length} clips of this post into one entry`)
+      } catch (err) { log(`Could not group the clips (${err.message})`) }
+    }
     log(`Imported ${files.length} file${files.length === 1 ? '' : 's'} with author, description and link saved to Notes`)
     send({ type: 'done' })
     res.end()

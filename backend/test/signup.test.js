@@ -160,7 +160,7 @@ test('migration 5 keeps existing users approved and sign-ups off', () => {
   for (const m of migrations.filter((x) => x.version <= 4)) db.transaction(() => { m.up(db); db.pragma(`user_version = ${m.version}`) })()
   db.prepare("INSERT INTO users (username, display_name, password_hash, role) VALUES ('old', 'Old', 'h', 'admin')").run()
   runMigrations(db, { backup: false })
-  assert.equal(db.pragma('user_version', { simple: true }), 5)
+  assert.equal(db.pragma('user_version', { simple: true }), migrations.at(-1).version)
   const u = db.prepare("SELECT * FROM users WHERE username = 'old'").get()
   assert.equal(u.pending, 0)
   assert.equal(db.prepare("SELECT value FROM settings WHERE key = 'signups_enabled'").get().value, 'false')

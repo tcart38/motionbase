@@ -6,7 +6,7 @@ import { config } from '../config.js'
 import { getDb } from '../db/index.js'
 import { agentAuth } from '../middleware/agentAuth.js'
 import { HttpError } from '../services/errors.js'
-import { buildFileFilter, uploadersFor } from '../services/fileQuery.js'
+import { buildFileFilter, uploadersFor, groupInfoFor } from '../services/fileQuery.js'
 import { getTree, getPathMap, findByPath, ensurePath, getFolder } from '../services/folders.js'
 import { runBatch, requiresConfirmation, MAX_BATCH } from '../services/agentUpdates.js'
 import { listActivity, getActivity, logActivity } from '../services/activity.js'
@@ -92,6 +92,7 @@ function serializeFiles(db, rows) {
     )
   }
   const uploaders = uploadersFor(db, rows)
+  const groups = groupInfoFor(db, rows)
   const now = new Date().toISOString()
   return rows.map((f) => {
     const tags = byFile[f.id] || []
@@ -108,6 +109,10 @@ function serializeFiles(db, rows) {
       notes: f.notes,
       uploader: f.uploaded_by ? uploaders.get(f.uploaded_by)?.display_name ?? null : null,
       upload_source: f.upload_source ?? null,
+      group_id: f.group_id ?? null,
+      group_title: f.group_id ? groups.get(f.group_id)?.title ?? null : null,
+      group_position: f.group_id ? f.group_position ?? null : null,
+      group_size: f.group_id ? groups.get(f.group_id)?.size ?? 0 : null,
       folder_id: f.folder_id,
       folder_path: f.folder_id ? pathMap.get(f.folder_id) ?? null : null,
       tags,

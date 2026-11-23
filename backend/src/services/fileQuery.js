@@ -19,7 +19,7 @@ export function orderBy(sort, order) {
 
 // Shared WHERE-clause builder for the file list and the filter-aware "next file" lookup.
 // Tag filtering is AND-across-categories, OR-within-category.
-export function buildFileFilter(db, { view = 'all', tags = '', search = '', favorites = '', untagged = '', folder = '', subfolders = '', status = '', source = '', trash = '', uploader = '' } = {}) {
+export function buildFileFilter(db, { view = 'all', tags = '', search = '', favorites = '', untagged = '', folder = '', subfolders = '', status = '', source = '', trash = '', uploader = '', group = '' } = {}) {
   const tagIds = tags ? String(tags).split(',').map(Number).filter(Boolean) : []
   const tagConditions = []
   const tagParams = []
@@ -89,8 +89,12 @@ export function buildFileFilter(db, { view = 'all', tags = '', search = '', favo
   }
   const statusCondition = STATUS[status] || null
 
+  // group=<id> -> the members of that media group
+  const groupId = group !== '' && group != null && Number.isInteger(Number(group)) ? Number(group) : null
+
   const where = [
     'f.is_missing = 0',
+    groupId != null ? 'f.group_id = ?' : null,
     trash === '1' || trash === 1 || trash === true ? 'f.deleted_at IS NOT NULL' : 'f.deleted_at IS NULL',
     view === 'inbox' ? 'f.reviewed_at IS NULL' : null,
     favorites === '1' ? 'f.is_favorite = 1' : null,
@@ -104,7 +108,7 @@ export function buildFileFilter(db, { view = 'all', tags = '', search = '', favo
     ...tagConditions,
   ].filter(Boolean).join(' AND ')
 
-  return { where, params: [...preParams, ...folderParams, ...uploaderParams, ...tagParams] }
+  return { where, params: [...(groupId != null ? [groupId] : []), ...preParams, ...folderParams, ...uploaderParams, ...tagParams] }
 }
 
 // Attach full tag objects (`tags`) to each file row. Returns new objects.
@@ -128,8 +132,11 @@ export function attachTags(db, rows) {
     }
   }
   const uploaders = uploadersFor(db, rows)
+  const groups = groupInfoFor(db, rows)
   return rows.map((r) => ({
     ...r, tags: tagsByFile[r.id] || [],
+    group_title: r.group_id ? groups.get(r.group_id)?.title ?? null : null,
+    group_size: r.group_id ? groups.get(r.group_id)?.size ?? 0 : null,
     uploader: r.uploaded_by ? uploaders.get(r.uploaded_by) ?? null : null,
   }))
 }
@@ -147,4 +154,28 @@ export function uploadersFor(db, rows) {
   return new Map(db.prepare(
     `SELECT id, display_name, username FROM users WHERE id IN (${ids.map(() => '?').join(',')})`
   ).all(...ids).map((u) => [u.id, u]))
+}
+
+// Group fields for file rows: Map groupId -> { title, size (live members) }
+export function groupInfoFor(db, rows) {
+  const gids = [...new Set(rows.map((r) => r.group_id).filter(Boolean))]
+  if (!gids.length) return new Map()
+  const ph = gids.map(() => '?').join(',')
+  const titles = new Map(db.prepare(`SELECT id, title FROM media_groups WHERE id IN (${ph})`).all(...gids).map((g) => [g.id, g.title]))
+  const sizes = new Map(db.prepare(
+    `SELECT group_id, COUNT(*) AS n FROM files WHERE group_id IN (${ph}) AND deleted_at IS NULL AND is_missing = 0 GROUP BY group_id`
+  ).all(...gids).map((r) => [r.group_id, r.n]))
+  return new Map(gids.map((g) => [g, { title: titles.get(g) ?? null, size: sizes.get(g) ?? 0 }]))
+}
+
+// Library collapse: a group counts as ONE entry, represented by its first matching member
+// (ORDER BY group_position, id), when ANY member matches the filters. Same params as `where`.
+// Callers drop the helper column rn from the rows.
+export function collapsedSource(where) {
+  return {
+    with: `WITH matched AS (SELECT f.* FROM files f WHERE ${where}),
+      ranked AS (SELECT matched.*, CASE WHEN group_id IS NULL THEN 1
+        ELSE ROW_NUMBER() OVER (PARTITION BY group_id ORDER BY group_position IS NULL, group_position, id) END AS rn FROM matched)`,
+    from: 'ranked f WHERE f.rn = 1',
+  }
 }

@@ -22,7 +22,7 @@ export const hooks = { beforeFile: null }
 export const FIXED_COLUMNS = [
   'id', 'filename', 'relative_path', 'folder_path', 'file_type', 'duration_seconds', 'width', 'height', 'fps',
   'aspect_ratio', 'file_size_bytes', 'date_added', 'uploaded_by', 'upload_source', 'favorite', 'reviewed',
-  'reviewed_by', 'in_trash', 'notes', 'source_url', 'author', 'tags',
+  'reviewed_by', 'in_trash', 'group_title', 'group_position', 'notes', 'source_url', 'author', 'tags',
 ]
 
 export const flag = (v) => ['1', 'true', 'yes', 'on'].includes(String(v ?? '').toLowerCase())
@@ -104,6 +104,8 @@ function makeRecord(row, tags, history, pathMap, mediaDir) {
     reviewed_by: row.reviewed_by ?? null,
     reviewed_at: row.reviewed_at ?? null,
     in_trash: !!row.deleted_at,
+    group_title: row.group_title ?? null,
+    group_position: row.group_id ? row.group_position ?? null : null,
     notes: row.notes ?? null,
     source_url,
     author,
@@ -117,7 +119,8 @@ function makeRecord(row, tags, history, pathMap, mediaDir) {
 export async function* filePages(db, { includeTrash = false, includeHistory = false, mediaDir = config.mediaDir } = {}) {
   const pathMap = getPathMap(db)
   const page = db.prepare(`
-    SELECT f.*, u.display_name AS uploader_name, u.username AS uploader_username
+    SELECT f.*, u.display_name AS uploader_name, u.username AS uploader_username,
+      (SELECT g.title FROM media_groups g WHERE g.id = f.group_id) AS group_title
     FROM files f LEFT JOIN users u ON u.id = f.uploaded_by
     WHERE f.is_missing = 0 ${trashClause(includeTrash)} AND f.id > ? ORDER BY f.id LIMIT ?
   `)

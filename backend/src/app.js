@@ -4,6 +4,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { config } from './config.js'
 import filesRouter from './routes/files.js'
+import groupsRouter from './routes/groups.js'
 import scanRouter from './routes/scan.js'
 import tagsRouter from './routes/tags.js'
 import categoriesRouter from './routes/categories.js'
@@ -44,6 +45,7 @@ export function createApp({ serveFrontend = config.isProd } = {}) {
   app.use('/thumbnails', express.static(config.thumbnailsDir))
 
   app.use('/api/files', filesRouter)
+  app.use('/api/groups', groupsRouter)
   app.use('/api/scan', scanRouter)
   app.use('/api/tags', tagsRouter)
   app.use('/api/categories', categoriesRouter)
