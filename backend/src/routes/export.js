@@ -26,6 +26,12 @@ const swallowClose = (e) => {
   if (!['ERR_STREAM_PREMATURE_CLOSE', 'ABORT_ERR', 'ERR_STREAM_DESTROYED'].includes(e?.code) && e?.name !== 'AbortError') throw e
 }
 
+// GET /api/export/estimate?include_trash=0 -> { files, bytes } that a full export would contain.
+router.get('/estimate', (req, res) => {
+  const t = fileTotals(getDb(), { includeTrash: flag(req.query.include_trash) })
+  res.json({ files: t.count, bytes: t.bytes })
+})
+
 // GET /api/export/metadata?format=csv|json&include_trash=0&include_history=0 (history is JSON only)
 router.get('/metadata', ah(async (req, res) => {
   const format = String(req.query.format || 'csv').toLowerCase()

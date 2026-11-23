@@ -48,6 +48,10 @@ Never exported: the database file, API tokens, password hashes, sessions, `cooki
 
 All endpoints need an admin session when login is on.
 
+### Size estimate
+
+`GET /api/export/estimate?include_trash=0` returns `{files, bytes}` for a full export (the web UI shows it before you download).
+
 ### Metadata only (streamed)
 
 `GET /api/export/metadata?format=csv|json&include_trash=0&include_history=0`

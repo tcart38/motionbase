@@ -16,7 +16,9 @@ export async function parseError(res) {
   const body = await res.json().catch(() => ({ error: res.statusText }))
   const retryAfter = body.retry_after ?? (Number(res.headers.get('Retry-After')) || null)
   if (res.status === 401 && body.login_required) window.dispatchEvent(new Event(LOGIN_REQUIRED_EVENT))
-  return new ApiError(body.error || `HTTP ${res.status}`, { status: res.status, retryAfter, loginRequired: !!body.login_required })
+  const err = new ApiError(body.error || `HTTP ${res.status}`, { status: res.status, retryAfter, loginRequired: !!body.login_required })
+  err.body = body
+  return err
 }
 
 async function request(path, options = {}) {
@@ -122,3 +124,18 @@ export const getAudit = (params = {}) => {
 export const thumbnailUrl = (file) => file.thumbnail_path ? `/thumbnails/${file.id}.jpg` : null
 export const streamUrl = (id) => `/api/files/${id}/stream`
 export const downloadUrl = (id) => `/api/files/${id}/download`
+
+// Export / restore
+export const getExportEstimate = (include_trash) => request(`/export/estimate?include_trash=${include_trash ? 1 : 0}`)
+export const getExportJobs = () => request('/export/jobs')
+export const getExportJob = (id) => request(`/export/jobs/${id}`)
+export const createExportJob = (body) => request('/export/jobs', { method: 'POST', body })
+export const cancelExportJob = (id) => request(`/export/jobs/${id}/cancel`, { method: 'POST', body: {} })
+export const deleteExportJob = (id) => request(`/export/jobs/${id}`, { method: 'DELETE' })
+// Restore takes the raw metadata.json text (can be large), so it bypasses the JSON helper.
+export async function importMetadata(text, { dryRun, overwriteNotes }) {
+  const qs = new URLSearchParams({ dry_run: dryRun ? '1' : '0', overwrite_notes: overwriteNotes ? '1' : '0' })
+  const res = await fetch(`${BASE}/import/metadata?${qs}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: text })
+  if (!res.ok) throw await parseError(res)
+  return res.json()
+}

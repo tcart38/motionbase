@@ -14,6 +14,7 @@ test('login off: export and restore are open', async () => {
   assert.equal((await t.get('/api/export/metadata?format=json')).status, 200)
   assert.equal((await t.get('/api/export/download.zip')).status, 200)
   assert.equal((await t.get('/api/export/jobs')).status, 200)
+  assert.deepEqual((await t.get('/api/export/estimate')).data, { files: 1, bytes: 1 })
   assert.equal((await t.post('/api/import/metadata?dry_run=1', { files: [] })).status, 200)
 })
 
@@ -25,7 +26,7 @@ test('login on: admins only (401 anonymous, 403 for users); actions are audited 
   U = cookie(await t.post('/api/auth/login', { username: 'bob', password: PW }))
 
   const routes = [
-    ['get', '/api/export/metadata?format=csv'], ['get', '/api/export/download.zip'], ['get', '/api/export/jobs'],
+    ['get', '/api/export/metadata?format=csv'], ['get', '/api/export/download.zip'], ['get', '/api/export/jobs'], ['get', '/api/export/estimate'],
     ['post', '/api/export/jobs'], ['get', '/api/export/jobs/x'], ['post', '/api/export/jobs/x/cancel'],
     ['del', '/api/export/jobs/x'], ['get', '/api/export/jobs/x/download'], ['post', '/api/import/metadata'],
   ]

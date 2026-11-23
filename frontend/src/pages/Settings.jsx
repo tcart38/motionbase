@@ -6,19 +6,24 @@ import AppearanceTab from '@/components/settings/AppearanceTab.jsx'
 import TaxonomyTab from '@/components/settings/TaxonomyTab.jsx'
 import FoldersTab from '@/components/settings/FoldersTab.jsx'
 import AccountsTab from '@/components/settings/AccountsTab.jsx'
+import DataTab from '@/components/settings/DataTab.jsx'
+import { useAuth } from '@/context/AuthContext.jsx'
 import AgentTab from '@/components/settings/AgentTab.jsx'
 
-const TABS = [
+const ALL_TABS = [
   { value: 'general', label: 'General', Component: GeneralTab },
   { value: 'appearance', label: 'Appearance', Component: AppearanceTab },
   { value: 'taxonomy', label: 'Taxonomy', Component: TaxonomyTab },
   { value: 'folders', label: 'Folders', Component: FoldersTab },
+  { value: 'data', label: 'Data', Component: DataTab, adminOnly: true },
   { value: 'agent', label: 'Agent API', Component: AgentTab },
   { value: 'accounts', label: 'Accounts', Component: AccountsTab },
 ]
 
 export default function Settings() {
   const [params, setParams] = useSearchParams()
+  const { isAdmin } = useAuth()
+  const TABS = ALL_TABS.filter((t) => !t.adminOnly || isAdmin)
   const current = TABS.some((t) => t.value === params.get('tab')) ? params.get('tab') : 'general'
   return (
     <div className="mx-auto max-w-3xl p-4 md:p-6">
