@@ -6,6 +6,7 @@ All notable changes to MotionBase are documented here. The format follows [Keep 
 
 ### Added
 - Delete with Undo: videos move to a Trash (soft delete, migration 3) from the Library (card menu and bulk bar) and the Player (button or Del key), with an Undo toast. The Trash page restores or permanently deletes (which also removes the file from the media folder, with confirmation). Trashed files are hidden from the Library, folder counts and the agent API, and the scanner won't re-import them.
+- URL import: source details (author, link, platform, post date when the site provides it, and the description/caption) are saved into the file's Notes on download, without overwriting existing notes. LinkedIn posts expose the author and a caption snippet but no post date.
 - Player: Page Up / Page Down step one frame back / forward; a folder button above the side-panel tabs (Shift+M).
 
 ### Changed
