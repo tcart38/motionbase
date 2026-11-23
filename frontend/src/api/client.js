@@ -65,6 +65,21 @@ export const deleteCategory = (id) => request(`/categories/${id}`, { method: 'DE
 export const getSettings = () => request('/settings')
 export const updateSettings = (body) => request('/settings', { method: 'PUT', body })
 
+// Agent API: tokens and activity
+export const getTokens = () => request('/tokens')
+export const createApiToken = (name) => request('/tokens', { method: 'POST', body: { name } })
+export const revokeApiToken = (id) => request(`/tokens/${id}`, { method: 'DELETE' })
+export const getActivity = (params = {}) => {
+  const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v != null)).toString()
+  return request(`/activity${qs ? `?${qs}` : ''}`)
+}
+export const revertActivity = (id) => request(`/activity/${id}/revert`, { method: 'POST' })
+
+// yt-dlp cookies
+export const getCookiesStatus = () => request('/cookies')
+export const saveCookies = (content) => request('/cookies', { method: 'POST', body: { content } })
+export const deleteCookies = () => request('/cookies', { method: 'DELETE' })
+
 // Media URLs (used directly in <img> / <video> src)
 export const thumbnailUrl = (file) => file.thumbnail_path ? `/thumbnails/${file.id}.jpg` : null
 export const streamUrl = (id) => `/api/files/${id}/stream`
