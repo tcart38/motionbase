@@ -21,7 +21,7 @@ router.get('/', (req, res) => {
 
 router.put('/', requireAdmin, (req, res) => {
   const db = getDb()
-  const { scan_interval, agent_requires_confirmation } = req.body
+  const { scan_interval, agent_requires_confirmation, signups_enabled, signups_require_approval } = req.body
 
   if (scan_interval !== undefined) {
     const val = parseInt(scan_interval, 10)
@@ -38,7 +38,13 @@ router.put('/', requireAdmin, (req, res) => {
       .run(String(agent_requires_confirmation))
   }
 
-  const changed = ['scan_interval', 'agent_requires_confirmation'].filter((k) => req.body[k] !== undefined)
+  for (const k of ['signups_enabled', 'signups_require_approval']) {
+    if (req.body[k] === undefined) continue
+    if (typeof req.body[k] !== 'boolean') return res.status(400).json({ error: `${k} must be a boolean` })
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(k, String(req.body[k]))
+  }
+
+  const changed = ['scan_interval', 'agent_requires_confirmation', 'signups_enabled', 'signups_require_approval'].filter((k) => req.body[k] !== undefined)
   if (changed.length) audit(db, userActor(req.user), 'settings_changed', Object.fromEntries(changed.map((k) => [k, req.body[k]])))
 
   const rows = db.prepare('SELECT key, value FROM settings').all()

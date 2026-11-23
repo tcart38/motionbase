@@ -20,9 +20,12 @@ function loadUser(db, id) {
 router.get('/', (req, res) => {
   const rows = getDb().prepare(`
     SELECT u.*, (SELECT COUNT(*) FROM files f WHERE f.uploaded_by = u.id AND f.is_missing = 0 AND f.deleted_at IS NULL) AS file_count
-    FROM users u ORDER BY u.disabled_at IS NOT NULL, u.display_name COLLATE NOCASE
+    FROM users u ORDER BY u.pending DESC, u.disabled_at IS NOT NULL, u.display_name COLLATE NOCASE
   `).all()
-  res.json({ users: rows.map((u) => ({ ...publicUser(u), file_count: u.file_count })) })
+  res.json({
+    users: rows.map((u) => ({ ...publicUser(u), file_count: u.file_count })),
+    pending_count: rows.filter((u) => u.pending).length,
+  })
 })
 
 router.post('/', wrap(async (req, res) => {
@@ -45,6 +48,7 @@ router.patch('/:id', (req, res) => {
       changes.role = role
     }
     if (disabled !== undefined) {
+      if (target.pending) throw new HttpError(409, 'Approve or reject this sign-up first')
       if (typeof disabled !== 'boolean') throw new HttpError(400, 'disabled must be a boolean')
       changes.disabled = disabled
     }
@@ -61,6 +65,26 @@ router.patch('/:id', (req, res) => {
     const action = changes.disabled === true && !target.disabled_at ? 'user_disabled' : 'user_updated'
     audit(db, userActor(req.user), action, { id: target.id, username: target.username, ...changes })
   })()
+  res.json({ user: publicUser(getUser(db, target.id)) })
+})
+
+// Pending sign-ups: approve lets them sign in; reject disables them for good (the row stays for history).
+router.post('/:id/approve', (req, res) => {
+  const db = getDb()
+  const target = loadUser(db, req.params.id)
+  if (!target.pending) throw new HttpError(409, 'This account is not waiting for approval')
+  db.prepare('UPDATE users SET pending = 0 WHERE id = ?').run(target.id)
+  audit(db, userActor(req.user), 'signup_approved', { id: target.id, username: target.username })
+  res.json({ user: publicUser(getUser(db, target.id)) })
+})
+
+router.post('/:id/reject', (req, res) => {
+  const db = getDb()
+  const target = loadUser(db, req.params.id)
+  if (!target.pending) throw new HttpError(409, 'This account is not waiting for approval')
+  db.prepare("UPDATE users SET pending = 0, disabled_at = datetime('now') WHERE id = ?").run(target.id)
+  deleteUserSessions(db, target.id)
+  audit(db, userActor(req.user), 'signup_rejected', { id: target.id, username: target.username })
   res.json({ user: publicUser(getUser(db, target.id)) })
 })
 

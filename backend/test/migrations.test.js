@@ -59,7 +59,7 @@ test('v3 database upgrades to accounts (v4), keeps every row and leaves login of
     assert.equal(old.pragma('user_version', { simple: true }), 3)
 
     runMigrations(old, { dbPath })
-    assert.equal(old.pragma('user_version', { simple: true }), 4)
+    assert.equal(old.pragma('user_version', { simple: true }), migrations.at(-1).version)
     const f = old.prepare('SELECT * FROM files WHERE id = 1').get()
     assert.equal(f.notes, 'keep me')
     assert.equal(f.uploaded_by, null)

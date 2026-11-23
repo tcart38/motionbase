@@ -22,7 +22,7 @@ export async function run(argv) {
       const user = getUserByName(db, username)
       if (!user) throw new Error(`No user named "${username}"`)
       await setPassword(db, user.id, password)
-      db.prepare('UPDATE users SET disabled_at = NULL WHERE id = ?').run(user.id)
+      db.prepare('UPDATE users SET disabled_at = NULL, pending = 0 WHERE id = ?').run(user.id)
       deleteUserSessions(db, user.id)
       audit(db, { user_id: null, label: 'CLI' }, 'user_password_reset', { id: user.id, username: user.username, via: 'cli' })
       console.log(`Password reset for ${user.username}. All their sessions were signed out.`)

@@ -6,7 +6,7 @@ import { getDb } from '../db/index.js'
 import { HttpError } from '../services/errors.js'
 import { requireUser } from '../middleware/session.js'
 import {
-  SESSION_COOKIE, audit, clearFailures, clearSessionCookie, countUsers, createSession, createUser,
+  SESSION_COOKIE, areSignupsEnabled, audit, recordSignup, signupLimited, signupsRequireApproval, clearFailures, clearSessionCookie, countUsers, createSession, createUser,
   deleteSessionByToken, deleteUserSessions, fakeVerify, getUser, getUserByName, isAuthEnabled, parseCookies,
   publicUser, rateLimited, recordFailure, setAuthEnabled, setPassword, setSessionCookie, userActor,
   validateDisplayName, validatePassword, verifyPassword,
@@ -32,6 +32,11 @@ async function checkCredentials(req, res, username, password, { action = 'login_
   if (wait) { tooMany(res, wait); return null }
   const user = typeof password === 'string' && name ? getUserByName(db, name) : null
   const ok = user ? await verifyPassword(password, user.password_hash) : (await fakeVerify(String(password ?? '')), false)
+  if (ok && user.pending) {
+    clearFailures(name, req.ip)
+    res.status(403).json({ error: 'Your account is waiting for admin approval', pending: true })
+    return null
+  }
   if (!ok || user.disabled_at) {
     recordFailure(name, req.ip)
     audit(db, { user_id: user?.id ?? null, label: null }, action, { username: name, ip: req.ip, reason: user?.disabled_at && ok ? 'disabled' : undefined })
@@ -55,6 +60,8 @@ router.get('/status', (req, res) => {
     enabled: req.authEnabled,
     setup_required: countUsers(db) === 0,
     user: req.authEnabled ? publicUser(req.user) : null,
+    signups_enabled: areSignupsEnabled(db),
+    signups_require_approval: signupsRequireApproval(db),
     version,
   })
 })
@@ -104,6 +111,26 @@ router.post('/login', wrap(async (req, res) => {
   startSession(req, res, user)
   audit(db, userActor(user), 'login', { username: user.username })
   res.json({ user: publicUser(getUser(db, user.id)) })
+}))
+
+// Optional self sign-up. Always creates a normal user (any role in the body is ignored).
+router.post('/signup', wrap(async (req, res) => {
+  const db = getDb()
+  if (!areSignupsEnabled(db)) throw new HttpError(403, 'Sign-ups are not enabled')
+  const wait = signupLimited(req.ip)
+  if (wait) {
+    res.set('Retry-After', String(wait))
+    return res.status(429).json({ error: 'Too many sign-ups. Try again later.', retry_after: wait })
+  }
+  const { username, display_name, password } = req.body || {}
+  const pending = signupsRequireApproval(db)
+  const user = await createUser(db, { username, display_name, password, role: 'user', pending })
+  recordSignup(req.ip)
+  audit(db, userActor(user), 'signup', { id: user.id, username: user.username, pending, ip: req.ip })
+  if (pending) return res.status(201).json({ pending: true })
+  startSession(req, res, user)
+  audit(db, userActor(user), 'login', { username: user.username })
+  res.status(201).json({ user: publicUser(getUser(db, user.id)) })
 }))
 
 router.post('/logout', (req, res) => {

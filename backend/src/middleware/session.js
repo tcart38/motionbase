@@ -5,7 +5,7 @@ import {
 
 // Paths that never need a session even when login is on. The agent API and MCP use bearer tokens.
 const PUBLIC = [
-  /^\/api\/auth\/(status|login|setup|enable)$/,
+  /^\/api\/auth\/(status|login|setup|enable|signup)$/,
   /^\/api\/health$/,
   /^\/api\/agent\/v1(\/|$)/,
   /^\/mcp(\/|$)/,
@@ -52,7 +52,7 @@ export function sessionMiddleware(req, res, next) {
     }
   }
 
-  const authPost = /^\/api\/auth\/(login|setup|enable)$/.test(req.path)
+  const authPost = /^\/api\/auth\/(login|setup|enable|signup)$/.test(req.path)
   if (req.user || authPost) {
     const problem = csrfProblem(req)
     if (problem) return res.status(403).json({ error: problem })

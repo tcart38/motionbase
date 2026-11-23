@@ -50,6 +50,15 @@ export function setAuthEnabled(db, enabled) {
   db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('auth_enabled', ?)").run(enabled ? 'true' : 'false')
 }
 
+export function areSignupsEnabled(db) {
+  return isAuthEnabled(db) && db.prepare("SELECT value FROM settings WHERE key = 'signups_enabled'").get()?.value === 'true'
+}
+
+// Defaults to true (safe) unless an admin explicitly turned it off.
+export function signupsRequireApproval(db) {
+  return db.prepare("SELECT value FROM settings WHERE key = 'signups_require_approval'").get()?.value !== 'false'
+}
+
 // ---- audit ---------------------------------------------------------------------
 
 // by: { user_id, label } (or null for system/unknown)
@@ -83,7 +92,7 @@ export function publicUser(u) {
   if (!u) return null
   return {
     id: u.id, username: u.username, display_name: u.display_name, role: u.role,
-    disabled: !!u.disabled_at, created_at: u.created_at, last_login_at: u.last_login_at,
+    disabled: !!u.disabled_at, pending: !!u.pending, created_at: u.created_at, last_login_at: u.last_login_at,
   }
 }
 
@@ -91,7 +100,7 @@ export const getUser = (db, id) => db.prepare('SELECT * FROM users WHERE id = ?'
 export const getUserByName = (db, username) => db.prepare('SELECT * FROM users WHERE username = ?').get(String(username ?? '').trim())
 export const countUsers = (db) => db.prepare('SELECT COUNT(*) AS n FROM users').get().n
 export const countActiveAdmins = (db) =>
-  db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND disabled_at IS NULL").get().n
+  db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND disabled_at IS NULL AND pending = 0").get().n
 
 export function validateUsername(username) {
   const u = String(username ?? '').trim()
@@ -108,7 +117,7 @@ export function validateDisplayName(name, fallback) {
   return d
 }
 
-export async function createUser(db, { username, display_name, password, role = 'user' }) {
+export async function createUser(db, { username, display_name, password, role = 'user', pending = false }) {
   const uname = validateUsername(username)
   const display = validateDisplayName(display_name, uname)
   if (!['admin', 'user'].includes(role)) throw new HttpError(400, "role must be 'admin' or 'user'")
@@ -116,8 +125,8 @@ export async function createUser(db, { username, display_name, password, role = 
   if (getUserByName(db, uname)) throw new HttpError(409, 'That username is already taken')
   const hash = await hashPassword(password)
   const { lastInsertRowid } = db.prepare(
-    'INSERT INTO users (username, display_name, password_hash, role) VALUES (?, ?, ?, ?)'
-  ).run(uname, display, hash, role)
+    'INSERT INTO users (username, display_name, password_hash, role, pending) VALUES (?, ?, ?, ?, ?)'
+  ).run(uname, display, hash, role, pending ? 1 : 0)
   return getUser(db, lastInsertRowid)
 }
 
@@ -151,7 +160,7 @@ export function resolveSession(db, token) {
     FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?
   `).get(sha256(token))
   const now = new Date()
-  if (!row || row.expires_at <= now.toISOString() || row.disabled_at) return null
+  if (!row || row.expires_at <= now.toISOString() || row.disabled_at || row.pending) return null
   let refreshed = false
   if (now.getTime() - new Date(row.last_seen_at).getTime() > 5 * 60000) {
     db.prepare('UPDATE sessions SET last_seen_at = ?, expires_at = ? WHERE id = ?')
@@ -211,3 +220,28 @@ export function recordFailure(name, ip) {
 }
 export const clearFailures = (name, ip) => failures.delete(key(name, ip))
 export const resetRateLimits = () => failures.clear()
+
+// ---- sign-up rate limit (in memory) ----------------------------------------------
+
+export const SIGNUP_PER_IP = 5 // per hour
+export const SIGNUP_GLOBAL = 50 // per 24 hours
+const HOUR = 3600000
+const DAY = 24 * HOUR
+let signupsByIp = new Map() // ip -> [timestamps]
+let signupsAll = []
+
+// Returns seconds to wait, or 0 when allowed.
+export function signupLimited(ip) {
+  const now = Date.now()
+  signupsAll = signupsAll.filter((t) => now - t < DAY)
+  if (signupsAll.length >= SIGNUP_GLOBAL) return Math.ceil((signupsAll[0] + DAY - now) / 1000)
+  const recent = (signupsByIp.get(ip) || []).filter((t) => now - t < HOUR)
+  if (recent.length) signupsByIp.set(ip, recent); else signupsByIp.delete(ip)
+  return recent.length >= SIGNUP_PER_IP ? Math.ceil((recent[0] + HOUR - now) / 1000) : 0
+}
+export function recordSignup(ip) {
+  const now = Date.now()
+  signupsAll.push(now)
+  signupsByIp.set(ip, [...(signupsByIp.get(ip) || []), now])
+}
+export function resetSignupLimits() { signupsByIp = new Map(); signupsAll = [] }

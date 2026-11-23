@@ -59,7 +59,7 @@ export function authenticate(db, presented) {
   if (env && safeEqual(presented, env)) return { tokenId: null, name: 'env', userId: null }
   const row = db.prepare(
     `SELECT t.id, t.name, t.user_id FROM api_tokens t LEFT JOIN users u ON u.id = t.user_id
-     WHERE t.token_hash = ? AND t.revoked_at IS NULL AND u.disabled_at IS NULL`
+     WHERE t.token_hash = ? AND t.revoked_at IS NULL AND u.disabled_at IS NULL AND COALESCE(u.pending, 0) = 0`
   ).get(sha256(presented))
   if (!row) return null
   db.prepare("UPDATE api_tokens SET last_used_at = datetime('now') WHERE id = ?").run(row.id)
