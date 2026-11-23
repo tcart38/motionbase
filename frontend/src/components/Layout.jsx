@@ -1,89 +1,92 @@
-import React, { useState, useCallback } from 'react'
-import { NavLink, Outlet } from 'react-router-dom'
-import { Film, PlusCircle, Settings, RefreshCw } from 'lucide-react'
-import { triggerScan, getScanStatus } from '../api/client.js'
+import React from 'react'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import {
+  RiFilmLine, RiInboxLine, RiAddCircleLine, RiSettings3Line, RiRefreshLine,
+} from '@remixicon/react'
+import {
+  Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent,
+  SidebarHeader, SidebarInset, SidebarMenu, SidebarMenuBadge, SidebarMenuButton,
+  SidebarMenuItem, SidebarProvider, SidebarRail, SidebarTrigger,
+} from '@/components/ui/sidebar.jsx'
+import { useScan } from '@/hooks/useScan.js'
+import { useInboxCount } from '@/hooks/useInboxCount.js'
 
 const navItems = [
-  { to: '/library', icon: Film, label: 'Library' },
-  { to: '/add-media', icon: PlusCircle, label: 'Add Media' },
-  { to: '/settings', icon: Settings, label: 'Settings' },
+  { to: '/library', icon: RiFilmLine, label: 'Library' },
+  { to: '/inbox', icon: RiInboxLine, label: 'Inbox', badge: true },
+  { to: '/add-media', icon: RiAddCircleLine, label: 'Add Media' },
+  { to: '/settings', icon: RiSettings3Line, label: 'Settings' },
 ]
 
 export default function Layout() {
-  const [scanning, setScanning] = useState(false)
-  const [scanMsg, setScanMsg] = useState(null)
-
-  const handleScan = useCallback(async () => {
-    try {
-      setScanning(true)
-      setScanMsg(null)
-      await triggerScan()
-      setScanMsg('Scanning…')
-      // Poll until done
-      const poll = setInterval(async () => {
-        const status = await getScanStatus().catch(() => null)
-        if (status && !status.isScanning) {
-          clearInterval(poll)
-          setScanning(false)
-          const r = status.lastScanResult
-          setScanMsg(r ? `+${r.added} added, ${r.missing} missing` : 'Done')
-          setTimeout(() => setScanMsg(null), 4000)
-        }
-      }, 1000)
-    } catch (err) {
-      setScanning(false)
-      setScanMsg(err.message)
-      setTimeout(() => setScanMsg(null), 4000)
-    }
-  }, [])
+  const { scanning, scan } = useScan()
+  const { data: inboxCount } = useInboxCount()
+  const { pathname } = useLocation()
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      {/* Sidebar */}
-      <nav className="w-52 flex-shrink-0 flex flex-col bg-white border-r border-slate-200
-                      dark:bg-slate-900 dark:border-white/[0.06]">
-        <div className="px-4 py-5">
-          <span className="text-base font-semibold text-slate-900 dark:text-slate-100 tracking-tight">MotionBase</span>
-        </div>
+    <SidebarProvider>
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-50 focus:rounded-md focus:bg-primary focus:px-3 focus:py-2 focus:text-sm focus:text-primary-foreground"
+      >
+        Skip to content
+      </a>
 
-        <div className="flex-1 px-2 space-y-0.5">
-          {navItems.map(({ to, icon: Icon, label }) => (
-            <NavLink
-              key={to}
-              to={to}
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors duration-150 ${
-                  isActive
-                    ? 'bg-brand/10 text-brand font-medium'
-                    : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'
-                }`
-              }
-            >
-              <Icon size={16} />
-              {label}
-            </NavLink>
-          ))}
-        </div>
+      <Sidebar collapsible="icon">
+        <SidebarHeader>
+          <span className="px-2 py-1.5 text-base font-semibold tracking-tight group-data-[collapsible=icon]:hidden">
+            MotionBase
+          </span>
+        </SidebarHeader>
 
-        <div className="p-3 border-t border-slate-200 dark:border-white/[0.06]">
-          <button
-            onClick={handleScan}
-            disabled={scanning}
-            className="btn-ghost w-full justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <RefreshCw size={14} className={scanning ? 'animate-spin' : ''} />
-            {scanning ? 'Scanning…' : 'Scan Now'}
-          </button>
-          {scanMsg && (
-            <p className="mt-1.5 text-center text-xs text-slate-500 dark:text-slate-400">{scanMsg}</p>
-          )}
-        </div>
-      </nav>
+        <SidebarContent>
+          <SidebarGroup>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {navItems.map(({ to, icon: Icon, label, badge }) => (
+                  <SidebarMenuItem key={to}>
+                    <SidebarMenuButton
+                      tooltip={label}
+                      isActive={pathname === to || pathname.startsWith(`${to}/`)}
+                      render={<NavLink to={to} />}
+                    >
+                      <Icon />
+                      <span>{label}</span>
+                    </SidebarMenuButton>
+                    {badge && inboxCount > 0 && (
+                      <SidebarMenuBadge aria-label={`${inboxCount} to review`}>
+                        {inboxCount > 99 ? '99+' : inboxCount}
+                      </SidebarMenuBadge>
+                    )}
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        </SidebarContent>
 
-      {/* Main content */}
-      <main className="flex-1 min-w-0 overflow-y-auto">
-        <Outlet />
-      </main>
-    </div>
+        <SidebarFooter>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton tooltip="Scan now" onClick={scan} disabled={scanning}>
+                <RiRefreshLine className={scanning ? 'animate-spin' : ''} />
+                <span>{scanning ? 'Scanning…' : 'Scan Now'}</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarFooter>
+        <SidebarRail />
+      </Sidebar>
+
+      <SidebarInset className="min-w-0 h-svh overflow-hidden">
+        <header className="flex h-11 shrink-0 items-center gap-2 border-b px-3 md:hidden">
+          <SidebarTrigger />
+          <span className="text-sm font-semibold">MotionBase</span>
+        </header>
+        <main id="main-content" tabIndex={-1} className="flex-1 min-h-0 overflow-y-auto outline-none">
+          <Outlet />
+        </main>
+      </SidebarInset>
+    </SidebarProvider>
   )
 }
