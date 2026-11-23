@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   RiArrowLeftLine, RiArrowRightLine, RiCheckLine, RiCloseLine, RiDownloadLine, RiImageLine, RiPencilLine,
-  RiStarFill, RiStarLine, RiCheckDoubleLine, RiFolderLine, RiFolderOpenLine, RiCloseLine, RiSparklingLine,
+  RiStarFill, RiStarLine, RiCheckDoubleLine, RiFolderLine, RiFolderOpenLine, RiSparklingLine,
 } from '@remixicon/react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button.jsx'
