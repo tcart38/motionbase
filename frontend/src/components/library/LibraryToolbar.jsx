@@ -28,7 +28,7 @@ export default function LibraryToolbar({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <div className="relative min-w-40 max-w-sm flex-1">
+      <div className="relative min-w-40 basis-full flex-1 sm:max-w-sm sm:basis-0">
         <RiSearchLine className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
         <Input
           type="search"
@@ -51,7 +51,7 @@ export default function LibraryToolbar({
       </div>
 
       <Select items={SORT_OPTIONS} value={sort} onValueChange={onSort}>
-        <SelectTrigger size="default" className="h-8 w-36" aria-label="Sort by"><SelectValue /></SelectTrigger>
+        <SelectTrigger size="default" className="h-8 w-36 max-sm:flex-1" aria-label="Sort by"><SelectValue /></SelectTrigger>
         <SelectContent>
           {SORT_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
         </SelectContent>
