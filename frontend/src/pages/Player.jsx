@@ -1,9 +1,29 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, Check, Download, Image as ImageIcon, Pencil, Star, X } from 'lucide-react'
-import { getFile, getNextFile, patchFile, streamUrl, thumbnailUrl, downloadUrl } from '../api/client.js'
-import VideoPlayer from '../components/VideoPlayer.jsx'
-import TagEditor from '../components/TagEditor.jsx'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  RiArrowLeftLine, RiArrowRightLine, RiCheckLine, RiCloseLine, RiDownloadLine, RiImageLine, RiPencilLine,
+  RiStarFill, RiStarLine, RiCheckDoubleLine, RiFolderLine, RiSparklingLine,
+} from '@remixicon/react'
+import { toast } from 'sonner'
+import { Button } from '@/components/ui/button.jsx'
+import { Input } from '@/components/ui/input.jsx'
+import { Textarea } from '@/components/ui/textarea.jsx'
+import { Badge } from '@/components/ui/badge.jsx'
+import { Skeleton } from '@/components/ui/skeleton.jsx'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs.jsx'
+import { ScrollArea } from '@/components/ui/scroll-area.jsx'
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable.jsx'
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty.jsx'
+import { useDefaultLayout } from 'react-resizable-panels'
+import VideoPlayer from '@/components/VideoPlayer.jsx'
+import TagEditor from '@/components/TagEditor.jsx'
+import MoveToFolderDialog from '@/components/MoveToFolderDialog.jsx'
+import { getFile, getNextFile, patchFile, streamUrl, thumbnailUrl, downloadUrl } from '@/api/client.js'
+import { useFolders } from '@/hooks/useFolders.js'
+import { useBulkActions } from '@/hooks/useBulkActions.js'
+import { useIsMobile } from '@/hooks/use-mobile.js'
+import { folderPath } from '@/lib/folders.js'
 
 function formatBytes(bytes) {
   if (!bytes) return null
@@ -14,310 +34,297 @@ function formatBytes(bytes) {
   return `${val.toFixed(i === 0 || val >= 10 ? 0 : 1)} ${units[i]}`
 }
 
+function SaveIndicator({ state }) {
+  if (state === 'saving') return <span className="text-xs text-muted-foreground" role="status">Saving…</span>
+  if (state === 'saved') return <span className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400" role="status"><RiCheckLine className="size-3" /> Saved</span>
+  return null
+}
+
+/** Notes textarea that autosaves 800 ms after typing stops (and on blur). */
+function NotesEditor({ file, onSaved }) {
+  const [value, setValue] = useState(file.notes || '')
+  const [state, setState] = useState('idle')
+  const timer = useRef(null)
+  const latest = useRef({ id: file.id, value, saved: file.notes || '' })
+  latest.current.id = file.id
+
+  useEffect(() => {
+    setValue(file.notes || '')
+    latest.current = { id: file.id, value: file.notes || '', saved: file.notes || '' }
+    setState('idle')
+  }, [file.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const save = useCallback(async () => {
+    clearTimeout(timer.current)
+    const { id, value: v, saved } = latest.current
+    if (v === saved) return
+    setState('saving')
+    try {
+      const updated = await patchFile(id, { notes: v })
+      latest.current.saved = v
+      onSaved(updated)
+      setState('saved')
+      setTimeout(() => setState((s) => (s === 'saved' ? 'idle' : s)), 1500)
+    } catch (err) {
+      toast.error(`Could not save notes: ${err.message}`)
+      setState('idle')
+    }
+  }, [onSaved])
+
+  useEffect(() => () => { save() }, [save])
+
+  return (
+    <div className="flex h-full flex-col gap-2">
+      <Textarea
+        value={value}
+        onChange={(e) => {
+          setValue(e.target.value)
+          latest.current.value = e.target.value
+          clearTimeout(timer.current)
+          timer.current = setTimeout(save, 800)
+        }}
+        onBlur={save}
+        placeholder="Notes about this clip: what it shows, techniques, where it could be used…"
+        aria-label="Notes"
+        className="min-h-40 flex-1 resize-none leading-relaxed"
+      />
+      <div className="h-4"><SaveIndicator state={state} /></div>
+    </div>
+  )
+}
+
+function InfoList({ file, folderLabel, onMove }) {
+  const rows = [
+    ['Type', file.file_type],
+    ['Dimensions', file.width ? `${file.width}×${file.height}` : '—'],
+    ['Duration', file.duration ? `${file.duration.toFixed(2)}s` : '—'],
+    ['Size', formatBytes(file.file_size) ?? '—'],
+    ['Frame rate', file.fps ? `${Math.round(file.fps * 100) / 100} fps` : '—'],
+    ['Aspect ratio', file.aspect_ratio ?? '—'],
+    ['Added', file.date_added ? new Date(file.date_added.replace(' ', 'T') + 'Z').toLocaleDateString() : '—'],
+  ]
+  const reviewed = file.reviewed_at
+    ? `Reviewed${file.reviewed_by && file.reviewed_by !== 'user' ? ` (${file.reviewed_by})` : ''}`
+    : file.agent_reviewed_at ? 'Reviewed by AI, awaiting your confirmation' : 'Not reviewed yet'
+  return (
+    <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-xs">
+      {rows.map(([k, v]) => (
+        <React.Fragment key={k}>
+          <dt className="text-muted-foreground">{k}</dt>
+          <dd className="font-mono">{v}</dd>
+        </React.Fragment>
+      ))}
+      <dt className="text-muted-foreground">Folder</dt>
+      <dd className="flex items-center gap-1.5">
+        <RiFolderLine className="size-3.5 text-muted-foreground" />
+        <span className="min-w-0 truncate">{folderLabel}</span>
+        <Button variant="ghost" size="xs" onClick={onMove}>Change</Button>
+      </dd>
+      <dt className="text-muted-foreground">Review</dt>
+      <dd>{reviewed}</dd>
+    </dl>
+  )
+}
+
 export default function Player() {
   const { id } = useParams()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const [file, setFile] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const qc = useQueryClient()
+  const isMobile = useIsMobile()
+  const bulk = useBulkActions()
+  const { data: folderData } = useFolders()
+  const [saveState, setSaveState] = useState('idle')
+  const [tab, setTab] = useState('tags')
+  const [moving, setMoving] = useState(false)
   const [nextLoading, setNextLoading] = useState(false)
-  const [saveState, setSaveState] = useState('idle') // tag save status, shown in panel header
 
-  useEffect(() => {
-    setLoading(true)
-    getFile(id).then(setFile).finally(() => setLoading(false))
-  }, [id])
+  const { data: file, isLoading, isError } = useQuery({ queryKey: ['file', id], queryFn: () => getFile(id) })
+  const layout = useDefaultLayout({ id: 'player-layout', storage: window.localStorage })
 
-  // Left panel: switch between Tags and Notes; always reset to Tags on a new video.
-  const [sidebarTab, setSidebarTab] = useState('tags')
-  useEffect(() => { setSidebarTab('tags') }, [id])
+  const applyUpdate = useCallback((updated) => {
+    qc.setQueryData(['file', String(updated.id)], updated)
+    qc.invalidateQueries({ queryKey: ['files'] })
+    qc.invalidateQueries({ queryKey: ['counts'] })
+  }, [qc])
 
-  // Left panel is resizable; the chosen width sticks for the session.
-  const MIN_W = 220
-  const MAX_W = 520
-  const asideRef = useRef(null)
-  const [sidebarWidth, setSidebarWidth] = useState(() => {
-    const saved = parseInt(sessionStorage.getItem('player:tagsWidth'), 10)
-    return Number.isInteger(saved) ? Math.max(MIN_W, Math.min(MAX_W, saved)) : 288
-  })
-  const widthRef = useRef(sidebarWidth)
-  useEffect(() => { widthRef.current = sidebarWidth }, [sidebarWidth])
-  const resizingRef = useRef(false)
+  useEffect(() => { setTab('tags') }, [id])
 
-  const startResize = useCallback((e) => {
-    e.preventDefault()
-    resizingRef.current = true
-    document.body.style.userSelect = 'none'
-    document.body.style.cursor = 'col-resize'
-  }, [])
-
-  useEffect(() => {
-    const onMove = (e) => {
-      if (!resizingRef.current || !asideRef.current) return
-      const left = asideRef.current.getBoundingClientRect().left
-      setSidebarWidth(Math.max(MIN_W, Math.min(MAX_W, e.clientX - left)))
-    }
-    const onUp = () => {
-      if (!resizingRef.current) return
-      resizingRef.current = false
-      document.body.style.userSelect = ''
-      document.body.style.cursor = ''
-      sessionStorage.setItem('player:tagsWidth', String(widthRef.current))
-    }
-    document.addEventListener('mousemove', onMove)
-    document.addEventListener('mouseup', onUp)
-    return () => {
-      document.removeEventListener('mousemove', onMove)
-      document.removeEventListener('mouseup', onUp)
-    }
-  }, [])
-
-  const handleNext = useCallback(async () => {
+  const goNext = useCallback(async () => {
     setNextLoading(true)
     try {
       const { nextId } = await getNextFile(id, Object.fromEntries(searchParams))
       navigate(`/player/${nextId}?${searchParams.toString()}`)
     } catch {
-      // No files match the current filter — nothing to advance to.
-    } finally {
-      setNextLoading(false)
-    }
+      toast.info('No other files in this view')
+    } finally { setNextLoading(false) }
   }, [id, searchParams, navigate])
 
-  const handleTagSaved = useCallback((updated) => setFile(updated), [])
-
+  // ----- Filename editing
   const [editingName, setEditingName] = useState(false)
   const [draftName, setDraftName] = useState('')
   const [nameSaving, setNameSaving] = useState(false)
   const [nameError, setNameError] = useState(null)
-  const [notesValue, setNotesValue] = useState(file?.notes || '')
-
-  useEffect(() => { setNotesValue(file?.notes || '') }, [file?.notes])
-
   const ext = file?.filename.includes('.') ? file.filename.slice(file.filename.lastIndexOf('.')) : ''
   const baseName = file ? (ext ? file.filename.slice(0, -ext.length) : file.filename) : ''
 
   const startEditName = () => { setDraftName(baseName); setNameError(null); setEditingName(true) }
   const cancelEditName = () => { setEditingName(false); setNameError(null) }
-  const saveEditName = useCallback(async () => {
+  const saveEditName = async () => {
     const trimmed = draftName.trim()
     if (!trimmed || trimmed === baseName) { cancelEditName(); return }
-    setNameSaving(true)
-    setNameError(null)
+    setNameSaving(true); setNameError(null)
     try {
-      const updated = await patchFile(file.id, { filename: trimmed + ext })
-      setFile(updated)
+      applyUpdate(await patchFile(file.id, { filename: trimmed + ext }))
       setEditingName(false)
-    } catch (err) {
-      setNameError(err.message)
-    } finally {
-      setNameSaving(false)
-    }
-  }, [draftName, baseName, ext, file])
+    } catch (err) { setNameError(err.message) } finally { setNameSaving(false) }
+  }
 
-  if (loading) {
+  const toggleFavorite = async () => {
+    try { applyUpdate(await patchFile(file.id, { is_favorite: file.is_favorite ? 0 : 1 })) } catch (err) { toast.error(err.message) }
+  }
+
+  if (isLoading) {
     return (
-      <div className="h-full flex">
-        <div className="w-72 flex-shrink-0 border-r border-slate-200 dark:border-white/[0.06] p-4">
-          <div className="animate-pulse space-y-3">
-            <div className="h-5 w-20 bg-slate-200 dark:bg-slate-800 rounded" />
-            <div className="h-24 bg-slate-200 dark:bg-slate-800 rounded" />
-          </div>
-        </div>
-        <div className="flex-1 p-6">
-          <div className="animate-pulse aspect-video bg-slate-200 dark:bg-slate-800 rounded-xl" />
-        </div>
+      <div className="flex h-full flex-col gap-3 p-4">
+        <Skeleton className="h-8 w-1/2" />
+        <Skeleton className="aspect-video w-full max-w-3xl" />
       </div>
     )
   }
 
-  if (!file) {
-    return <div className="p-6 text-slate-400">File not found.</div>
+  if (isError || !file) {
+    return (
+      <Empty className="h-full">
+        <EmptyHeader>
+          <EmptyMedia variant="icon"><RiImageLine /></EmptyMedia>
+          <EmptyTitle>File not found</EmptyTitle>
+          <EmptyDescription>It may have been deleted or moved.</EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent><Button onClick={() => navigate('/library')}>Back to library</Button></EmptyContent>
+      </Empty>
+    )
   }
 
-  const metadata = [
-    ['Type', file.file_type],
-    ['Dimensions', file.width ? `${file.width}×${file.height}` : '—'],
-    ['Duration', file.duration ? `${file.duration.toFixed(2)}s` : '—'],
-    ['Size', formatBytes(file.file_size) ?? '—'],
-    ['FPS', file.fps ?? '—'],
-    ['Aspect ratio', file.aspect_ratio ?? '—'],
-    ['Added', file.date_added ? new Date(file.date_added).toLocaleDateString() : '—'],
-  ]
+  const folders = folderData?.folders ?? []
+  const folderLabel = file.folder_id == null ? 'Unfiled' : folderPath(folders, file.folder_id).join(' / ') || 'Unfiled'
+  const aiTagged = file.tags?.some((t) => t.source === 'agent')
+
+  const header = (
+    <header className="flex shrink-0 flex-wrap items-center gap-2 border-b px-3 py-2">
+      <Button variant="ghost" onClick={() => navigate(`/library?${searchParams.toString()}`)} aria-label="Back to library">
+        <RiArrowLeftLine data-icon="inline-start" /> Back
+      </Button>
+
+      <div className="min-w-0 flex-1">
+        {editingName ? (
+          <div className="flex max-w-lg items-center gap-1.5">
+            <Input
+              autoFocus
+              value={draftName}
+              onChange={(e) => setDraftName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') saveEditName(); if (e.key === 'Escape') cancelEditName() }}
+              disabled={nameSaving}
+              aria-label="File name"
+              aria-invalid={!!nameError}
+              className="h-7 flex-1"
+            />
+            {ext && <span className="text-xs text-muted-foreground">{ext}</span>}
+            <Button size="icon-sm" variant="ghost" onClick={saveEditName} disabled={nameSaving} aria-label="Save name"><RiCheckLine /></Button>
+            <Button size="icon-sm" variant="ghost" onClick={cancelEditName} aria-label="Cancel rename"><RiCloseLine /></Button>
+          </div>
+        ) : (
+          <div className="flex min-w-0 items-center gap-1">
+            <h1 className="truncate text-sm font-medium" title={file.filename}>{file.filename}</h1>
+            <Button size="icon-sm" variant="ghost" onClick={startEditName} aria-label="Rename file"><RiPencilLine /></Button>
+            {aiTagged && <Badge variant="secondary" className="text-primary"><RiSparklingLine /> AI</Badge>}
+          </div>
+        )}
+        {nameError && <p role="alert" className="text-xs text-destructive">{nameError}</p>}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Button variant="outline" onClick={toggleFavorite} aria-pressed={!!file.is_favorite}>
+          {file.is_favorite ? <RiStarFill data-icon="inline-start" className="text-amber-500" /> : <RiStarLine data-icon="inline-start" />}
+          <span className="hidden sm:inline">{file.is_favorite ? 'Favorited' : 'Favorite'}</span>
+        </Button>
+        {!file.reviewed_at && (
+          <Button variant="outline" onClick={() => bulk.markReviewed([file])}>
+            <RiCheckDoubleLine data-icon="inline-start" /> <span className="hidden sm:inline">Mark reviewed</span>
+          </Button>
+        )}
+        <Button variant="outline" render={<a href={downloadUrl(file.id)} download={file.filename} />}>
+          <RiDownloadLine data-icon="inline-start" /> <span className="hidden sm:inline">Download</span>
+        </Button>
+        <Button onClick={goNext} disabled={nextLoading}>
+          Next <RiArrowRightLine data-icon="inline-end" />
+        </Button>
+      </div>
+    </header>
+  )
+
+  const media = file.file_type === 'video' ? (
+    <VideoPlayer file={file} />
+  ) : (
+    <div className="flex size-full items-center justify-center overflow-hidden rounded-xl bg-muted">
+      {thumbnailUrl(file) ? (
+        <img src={streamUrl(file.id)} alt={file.filename} className="max-h-full max-w-full object-contain" />
+      ) : (
+        <div className="flex flex-col items-center gap-2 text-muted-foreground"><RiImageLine className="size-8" /><span className="text-xs">No preview</span></div>
+      )}
+    </div>
+  )
+
+  const sidePanel = (
+    <Tabs value={tab} onValueChange={setTab} className="h-full min-h-0 gap-0">
+      <div className="flex items-center justify-between border-b px-3 py-2">
+        <TabsList>
+          <TabsTrigger value="tags">Tags</TabsTrigger>
+          <TabsTrigger value="notes">Notes</TabsTrigger>
+          <TabsTrigger value="info">Info</TabsTrigger>
+        </TabsList>
+        {tab === 'tags' && <SaveIndicator state={saveState} />}
+      </div>
+      <TabsContent value="tags" className="min-h-0 flex-1">
+        <ScrollArea className="h-full">
+          <div className="p-3"><TagEditor file={file} onSaved={applyUpdate} onSaveStateChange={setSaveState} /></div>
+        </ScrollArea>
+      </TabsContent>
+      <TabsContent value="notes" className="min-h-0 flex-1 p-3"><NotesEditor file={file} onSaved={applyUpdate} /></TabsContent>
+      <TabsContent value="info" className="min-h-0 flex-1">
+        <ScrollArea className="h-full"><div className="p-3"><InfoList file={file} folderLabel={folderLabel} onMove={() => setMoving(true)} /></div></ScrollArea>
+      </TabsContent>
+    </Tabs>
+  )
 
   return (
-    // Fills the main content area exactly; nothing here scrolls the whole page.
-    <div className="h-full flex overflow-hidden">
-      {/* Tags/Notes — a panel flush against the nav sidebar, not a floating card */}
-      <aside
-        ref={asideRef}
-        style={{ width: `${sidebarWidth}px` }}
-        className="relative flex-shrink-0 flex flex-col
-                   border-r border-slate-200 dark:border-white/[0.06]
-                   bg-white dark:bg-slate-900">
-        {/* Tab header */}
-        <div className="flex items-center justify-between pl-2 pr-3 h-14 flex-shrink-0
-                        border-b border-slate-200 dark:border-white/[0.06]">
-          <div className="flex items-center gap-1">
-            {['tags', 'notes'].map((t) => (
-              <button
-                key={t}
-                onClick={() => setSidebarTab(t)}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium capitalize transition-colors ${
-                  sidebarTab === t
-                    ? 'bg-brand/10 text-brand'
-                    : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100'
-                }`}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
-          {sidebarTab === 'tags' && saveState === 'saving' && (
-            <span className="text-xs text-slate-400 dark:text-slate-500">Saving…</span>
-          )}
-          {sidebarTab === 'tags' && saveState === 'saved' && (
-            <span className="text-xs text-emerald-500 flex items-center gap-1">
-              <Check size={11} /> Saved
-            </span>
-          )}
+    <div className="flex h-full min-h-0 flex-col">
+      {header}
+      {isMobile ? (
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="aspect-video w-full p-2">{media}</div>
+          <div className="h-[28rem]">{sidePanel}</div>
         </div>
-
-        {/* Panel body */}
-        <div className="flex-1 min-h-0">
-          {sidebarTab === 'tags' ? (
-            <div className="h-full overflow-y-auto px-4 py-4">
-              <TagEditor file={file} onSaved={handleTagSaved} onSaveStateChange={setSaveState} />
-            </div>
-          ) : (
-            <div className="h-full p-4">
-              <textarea
-                value={notesValue}
-                onChange={(e) => setNotesValue(e.target.value)}
-                onBlur={async () => {
-                  if (notesValue !== (file.notes || '')) {
-                    const updated = await patchFile(file.id, { notes: notesValue })
-                    setFile(updated)
-                  }
-                }}
-                placeholder="Add a note…"
-                className="input w-full h-full text-sm resize-none leading-relaxed"
-              />
-            </div>
-          )}
-        </div>
-
-        {/* Drag handle straddling the right border to resize the panel */}
-        <div
-          onMouseDown={startResize}
-          title="Drag to resize"
-          className="absolute inset-y-0 right-0 w-2 translate-x-1/2 cursor-col-resize z-20 group/resize"
+      ) : (
+        <ResizablePanelGroup
+          orientation="horizontal"
+          id="player-layout"
+          defaultLayout={layout.defaultLayout}
+          onLayoutChanged={layout.onLayoutChanged}
+          className="min-h-0 flex-1"
         >
-          <div className="mx-auto h-full w-px group-hover/resize:bg-brand transition-colors" />
-        </div>
-      </aside>
+          <ResizablePanel id="side" defaultSize="28%" minSize="20%" maxSize="50%">{sidePanel}</ResizablePanel>
+          <ResizableHandle withHandle />
+          <ResizablePanel id="main" minSize="40%"><div className="size-full p-3">{media}</div></ResizablePanel>
+        </ResizablePanelGroup>
+      )}
 
-      {/* Main column: top bar + player + info, all sized to fit the viewport */}
-      <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-        {/* Top bar: nav + filename + actions */}
-        <header className="flex items-center gap-3 px-4 h-14 flex-shrink-0
-                          border-b border-slate-200 dark:border-white/[0.06]">
-          <button onClick={() => navigate(`/library?${searchParams.toString()}`)} className="btn-ghost -ml-1 flex-shrink-0">
-            <ArrowLeft size={14} /> Back
-          </button>
-
-          {/* Editable filename — centered, grows to fill */}
-          <div className="flex-1 min-w-0 flex justify-center">
-            {editingName ? (
-              <div className="flex items-center gap-1.5 w-full max-w-lg">
-                <input
-                  autoFocus
-                  value={draftName}
-                  onChange={(e) => setDraftName(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') saveEditName(); if (e.key === 'Escape') cancelEditName() }}
-                  className="input py-1 text-sm flex-1 min-w-0"
-                  disabled={nameSaving}
-                />
-                {ext && <span className="text-slate-400 dark:text-slate-500 text-sm flex-shrink-0">{ext}</span>}
-                <button onClick={saveEditName} disabled={nameSaving} className="btn-ghost p-1 flex-shrink-0"><Check size={13} /></button>
-                <button onClick={cancelEditName} className="btn-ghost p-1 flex-shrink-0"><X size={13} /></button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1.5 group min-w-0 max-w-lg">
-                <h2
-                  className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate cursor-pointer"
-                  title={file.filename}
-                  onClick={startEditName}
-                >
-                  {file.filename}
-                </h2>
-                <button onClick={startEditName} className="btn-ghost p-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                  <Pencil size={11} />
-                </button>
-              </div>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <button
-              onClick={async () => {
-                const updated = await patchFile(file.id, { is_favorite: file.is_favorite ? 0 : 1 })
-                setFile(updated)
-              }}
-              className="btn-ghost flex items-center gap-1.5 text-xs"
-            >
-              <Star size={13} className={file.is_favorite ? 'fill-yellow-400 text-yellow-400' : ''} />
-              <span className="hidden sm:inline">{file.is_favorite ? 'Favorited' : 'Favorite'}</span>
-            </button>
-            <a
-              href={downloadUrl(file.id)}
-              download={file.filename}
-              className="btn-ghost flex items-center gap-1.5 text-xs"
-            >
-              <Download size={13} /> <span className="hidden sm:inline">Download</span>
-            </a>
-            <button onClick={handleNext} disabled={nextLoading} className="btn-ghost disabled:opacity-40">
-              Next <ArrowRight size={14} />
-            </button>
-          </div>
-        </header>
-        {nameError && <p className="px-4 pt-2 text-xs text-red-500 flex-shrink-0">{nameError}</p>}
-
-        {/* Player — flexes to fill all remaining space above the info bar */}
-        <div className="flex-1 min-h-0 p-4">
-          {file.file_type === 'video' ? (
-            <VideoPlayer file={file} />
-          ) : (
-            <div className="h-full bg-slate-200 dark:bg-slate-800 rounded-xl flex items-center justify-center overflow-hidden">
-              {thumbnailUrl(file) ? (
-                <img
-                  src={streamUrl(file.id)}
-                  alt={file.filename}
-                  className="max-w-full max-h-full object-contain"
-                />
-              ) : (
-                <div className="py-20 text-slate-400 dark:text-slate-500 flex flex-col items-center gap-2">
-                  <ImageIcon size={32} />
-                  <span className="text-sm">No preview</span>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Info bar — metadata only; capped with its own scroll so it never crowds the player */}
-        <div className="flex-shrink-0 border-t border-slate-200 dark:border-white/[0.06]
-                        max-h-32 overflow-y-auto px-4 py-3">
-          <dl className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-7 gap-x-4 gap-y-2 text-sm">
-            {metadata.map(([label, val]) => (
-              <div key={label} className="flex flex-col min-w-0">
-                <dt className="text-[10px] text-slate-500 uppercase tracking-wider">{label}</dt>
-                <dd className="text-slate-600 dark:text-slate-300 font-mono text-xs mt-0.5 truncate">{val}</dd>
-              </div>
-            ))}
-          </dl>
-        </div>
-      </div>
+      <MoveToFolderDialog
+        open={moving}
+        onOpenChange={setMoving}
+        title="Move to folder"
+        onSelect={(fid, f) => bulk.moveToFolder([file], fid, f?.name)}
+      />
     </div>
   )
 }

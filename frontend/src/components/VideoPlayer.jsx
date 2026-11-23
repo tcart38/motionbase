@@ -1,306 +1,268 @@
-import React, { useRef, useState, useCallback, useEffect } from 'react'
-import { Play, Pause, Volume2, VolumeX, SkipBack, SkipForward, Maximize2, Minimize2 } from 'lucide-react'
-import { streamUrl } from '../api/client.js'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  RiPlayFill, RiPauseFill, RiVolumeUpFill, RiVolumeMuteFill, RiVolumeDownFill, RiFullscreenLine,
+  RiFullscreenExitLine, RiSkipBackMiniFill, RiSkipForwardMiniFill, RiRepeatLine, RiSpeedLine,
+} from '@remixicon/react'
+import { Button } from '@/components/ui/button.jsx'
+import { Slider } from '@/components/ui/slider.jsx'
+import { Toggle } from '@/components/ui/toggle.jsx'
+import { Kbd } from '@/components/ui/kbd.jsx'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.jsx'
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu.jsx'
+import { cn } from '@/lib/utils.js'
+import { streamUrl } from '@/api/client.js'
 
-const RATES = [0.25, 0.5, 1, 1.5, 2]
+export const RATES = [0.25, 0.5, 1, 1.5, 2]
 const VOLUME_KEY = 'player:volume'
 const MUTED_KEY = 'player:muted'
 
-function formatTime(secs) {
-  if (!isFinite(secs)) return '0:00'
+function readStorage(key) { try { return localStorage.getItem(key) } catch { return null } }
+function writeStorage(key, v) { try { localStorage.setItem(key, v) } catch { /* ignore */ } }
+
+export function formatTime(secs) {
+  if (!Number.isFinite(secs)) return '0:00'
   const m = Math.floor(secs / 60)
   const s = Math.floor(secs % 60)
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
-export default function VideoPlayer({ file, onBoxResize }) {
+function Tip({ label, keys, children }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger render={children} />
+      <TooltipContent>
+        {label} {keys && <Kbd className="ml-1">{keys}</Kbd>}
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
+/**
+ * Video player. Fills its parent (give the parent a height) and letterboxes the clip.
+ * Shortcuts (when no text field or menu has focus):
+ *   Space / K play-pause · M mute · F fullscreen · , and . step a frame · ← → seek 5 s
+ *   [ and ] slower / faster · L loop
+ */
+export default function VideoPlayer({ file, className, autoPlay = true }) {
   const containerRef = useRef(null)
   const videoRef = useRef(null)
-  const scrubBarRef = useRef(null)
-  const slotRef = useRef(null)
-  const controlsRef = useRef(null)
-  const [slot, setSlot] = useState({ w: 0, h: 0, ctrl: 0 })
   const [playing, setPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
+  const [scrub, setScrub] = useState(null)
   const [duration, setDuration] = useState(0)
   const [volume, setVolume] = useState(() => {
-    const saved = parseFloat(localStorage.getItem(VOLUME_KEY))
+    const saved = parseFloat(readStorage(VOLUME_KEY))
     return Number.isFinite(saved) ? Math.max(0, Math.min(1, saved)) : 1
   })
-  const [muted, setMuted] = useState(() => localStorage.getItem(MUTED_KEY) === '1')
+  const [muted, setMuted] = useState(() => readStorage(MUTED_KEY) === '1')
   const [rate, setRate] = useState(1)
-  const [isFullscreen, setIsFullscreen] = useState(false)
-  const [isScrubbing, setIsScrubbing] = useState(false)
-
-  const durationRef = useRef(0)
-  const wasPlayingRef = useRef(false)
-
-  useEffect(() => { durationRef.current = duration }, [duration])
+  const [loop, setLoop] = useState(false)
+  const [fullscreen, setFullscreen] = useState(false)
+  const [error, setError] = useState(false)
 
   const fps = file?.fps || 30
 
+  // A new <video> source resets playback state and re-applies the saved volume.
   useEffect(() => {
-    setPlaying(false)
-    setCurrentTime(0)
-    setDuration(0)
-    setRate(1)
-    // A freshly mounted <video> element defaults to volume=1/muted=false,
-    // so re-apply the persisted setting whenever the source changes.
-    if (videoRef.current) {
-      videoRef.current.volume = volume
-      videoRef.current.muted = muted
-    }
-  }, [file?.id])
-
-  useEffect(() => {
-    const handler = () => setIsFullscreen(!!document.fullscreenElement)
-    document.addEventListener('fullscreenchange', handler)
-    return () => document.removeEventListener('fullscreenchange', handler)
-  }, [])
-
-  // Measure the available slot so we can size the player box to the video's
-  // "contain" fit in JS. Pure CSS can't fit both axes while scaling up — it
-  // always pins one axis and letterboxes/pillarboxes the other.
-  useEffect(() => {
-    const el = slotRef.current
-    if (!el) return
-    const measure = () => setSlot({
-      w: el.clientWidth,
-      h: el.clientHeight,
-      ctrl: controlsRef.current?.offsetHeight || 0,
-    })
-    measure()
-    const ro = new ResizeObserver(measure)
-    ro.observe(el)
-    if (controlsRef.current) ro.observe(controlsRef.current)
-    return () => ro.disconnect()
-  }, [isFullscreen])
-
-  const stepFrame = useCallback((dir) => {
+    setPlaying(false); setCurrentTime(0); setDuration(0); setRate(1); setError(false); setScrub(null)
     const v = videoRef.current
-    if (!v) return
-    v.pause()
-    v.currentTime = Math.max(0, Math.min(v.duration, v.currentTime + dir * (1 / fps)))
-  }, [fps])
+    if (v) { v.volume = volume; v.muted = muted; v.playbackRate = 1 }
+  }, [file?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    const handler = (e) => {
-      const tag = document.activeElement?.tagName?.toLowerCase()
-      if (tag === 'input' || tag === 'textarea' || tag === 'select') return
-      if (e.key === 'ArrowLeft')  { e.preventDefault(); stepFrame(-1) }
-      if (e.key === 'ArrowRight') { e.preventDefault(); stepFrame(1) }
-    }
-    document.addEventListener('keydown', handler)
-    return () => document.removeEventListener('keydown', handler)
-  }, [stepFrame])
-
-  useEffect(() => {
-    if (!isScrubbing) return
-    const seekToX = (clientX) => {
-      const bar = scrubBarRef.current
-      const v = videoRef.current
-      if (!bar || !v || !durationRef.current) return
-      const rect = bar.getBoundingClientRect()
-      const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
-      const t = pct * durationRef.current
-      v.currentTime = t
-      setCurrentTime(t)
-    }
-    const onMouseMove = (e) => seekToX(e.clientX)
-    const onMouseUp = (e) => {
-      seekToX(e.clientX)
-      setIsScrubbing(false)
-      if (wasPlayingRef.current) videoRef.current?.play().catch(() => {})
-    }
-    document.addEventListener('mousemove', onMouseMove)
-    document.addEventListener('mouseup', onMouseUp)
-    return () => {
-      document.removeEventListener('mousemove', onMouseMove)
-      document.removeEventListener('mouseup', onMouseUp)
-    }
-  }, [isScrubbing])
-
-  const handleScrubStart = useCallback((e) => {
-    e.preventDefault()
-    const v = videoRef.current
-    if (!v || !durationRef.current) return
-    wasPlayingRef.current = !v.paused
-    v.pause()
-    setIsScrubbing(true)
-    const bar = scrubBarRef.current
-    if (bar) {
-      const rect = bar.getBoundingClientRect()
-      const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
-      const t = pct * durationRef.current
-      v.currentTime = t
-      setCurrentTime(t)
-    }
+    const h = () => setFullscreen(document.fullscreenElement === containerRef.current)
+    document.addEventListener('fullscreenchange', h)
+    return () => document.removeEventListener('fullscreenchange', h)
   }, [])
 
   const togglePlay = useCallback(() => {
     const v = videoRef.current
     if (!v) return
-    playing ? v.pause() : v.play()
-  }, [playing])
-
-  const toggleFullscreen = useCallback(() => {
-    if (!document.fullscreenElement) {
-      containerRef.current?.requestFullscreen()
-    } else {
-      document.exitFullscreen()
-    }
+    if (v.paused) v.play().catch(() => {}); else v.pause()
   }, [])
 
-  const setPlaybackRate = useCallback((r) => {
+  const seekBy = useCallback((delta) => {
+    const v = videoRef.current
+    if (!v || !Number.isFinite(v.duration)) return
+    v.currentTime = Math.max(0, Math.min(v.duration, v.currentTime + delta))
+  }, [])
+
+  const stepFrame = useCallback((dir) => {
+    const v = videoRef.current
+    if (!v) return
+    v.pause()
+    seekBy(dir / fps)
+  }, [fps, seekBy])
+
+  const toggleMute = useCallback(() => {
+    const v = videoRef.current
+    if (!v) return
+    const next = !v.muted
+    v.muted = next
+    setMuted(next)
+    writeStorage(MUTED_KEY, next ? '1' : '0')
+  }, [])
+
+  const toggleFullscreen = useCallback(() => {
+    if (document.fullscreenElement) document.exitFullscreen()
+    else containerRef.current?.requestFullscreen?.()
+  }, [])
+
+  const changeRate = useCallback((r) => {
     setRate(r)
     if (videoRef.current) videoRef.current.playbackRate = r
   }, [])
 
-  const handleVolumeChange = useCallback((e) => {
-    const val = parseFloat(e.target.value)
-    const nowMuted = val === 0
-    setVolume(val)
-    setMuted(nowMuted)
-    if (videoRef.current) {
-      videoRef.current.volume = val
-      videoRef.current.muted = nowMuted
-    }
-    localStorage.setItem(VOLUME_KEY, String(val))
-    localStorage.setItem(MUTED_KEY, nowMuted ? '1' : '0')
+  const stepRate = useCallback((dir) => {
+    setRate((cur) => {
+      const i = RATES.indexOf(cur)
+      const next = RATES[Math.max(0, Math.min(RATES.length - 1, (i === -1 ? RATES.indexOf(1) : i) + dir))]
+      if (videoRef.current) videoRef.current.playbackRate = next
+      return next
+    })
   }, [])
 
-  // Size the player box to the video's "contain" fit within the measured slot.
-  // We fit the video into (slot width, slot height − controls), then add the
-  // controls height back so the whole box hugs the video on every side.
-  const ar = file?.width && file?.height ? file.width / file.height : 16 / 9
-  // Minimum box width so narrow (portrait) videos don't squish the controls bar.
-  const MIN_BOX_W = 680
-  const boxStyle = (() => {
-    if (isFullscreen || !slot.w || !slot.h) return undefined
-    const availH = Math.max(0, slot.h - slot.ctrl)
-    let vW = slot.w
-    let vH = vW / ar
-    if (vH > availH) { vH = availH; vW = vH * ar }
-    // Widen the box (not the video) to fit the controls; the video pillarboxes inside.
-    const boxW = Math.min(slot.w, Math.max(vW, MIN_BOX_W))
-    return { width: `${Math.round(boxW)}px`, height: `${Math.round(vH + slot.ctrl)}px` }
-  })()
-
-  // Let the caller know how wide the rendered box actually is, so surrounding
-  // UI (e.g. a modal header) can size itself to match instead of guessing.
-  const boxWidthPx = boxStyle ? Math.round(parseFloat(boxStyle.width)) : null
   useEffect(() => {
-    onBoxResize?.(boxWidthPx)
-  }, [boxWidthPx])
+    const onKey = (e) => {
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return
+      const t = e.target
+      if (t instanceof HTMLElement) {
+        if (t.closest('input, textarea, select, [contenteditable=true], [role=menu], [role=listbox], [role=dialog]:not(:has(video))')) return
+        if (t.closest('button, [role=slider]') && (e.key === ' ' || e.key === 'Enter')) return // let focused controls handle it
+      }
+      const handlers = {
+        ' ': togglePlay, k: togglePlay, m: toggleMute, f: toggleFullscreen, l: () => setLoop((v) => !v),
+        ',': () => stepFrame(-1), '.': () => stepFrame(1),
+        ArrowLeft: () => seekBy(e.shiftKey ? -1 : -5), ArrowRight: () => seekBy(e.shiftKey ? 1 : 5),
+        '[': () => stepRate(-1), ']': () => stepRate(1),
+      }
+      const fn = handlers[e.key] || handlers[e.key.toLowerCase?.()]
+      if (fn) { e.preventDefault(); fn() }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [togglePlay, toggleMute, toggleFullscreen, stepFrame, seekBy, stepRate])
 
   if (!file || file.file_type !== 'video') return null
 
-  const progress = duration ? (currentTime / duration) * 100 : 0
+  const shown = scrub ?? currentTime
+  const VolIcon = muted || volume === 0 ? RiVolumeMuteFill : volume < 0.5 ? RiVolumeDownFill : RiVolumeUpFill
 
-  const box = (
+  return (
     <div
       ref={containerRef}
-      style={boxStyle}
-      // Stop clicks here from bubbling past the player — e.g. a modal that
-      // closes on any outside click shouldn't close when you're toggling
-      // play or dragging the scrub bar. Anything outside this box (visible
-      // when the video is narrower than its bounding area) is fair game.
-      onClick={(e) => e.stopPropagation()}
-      className={`bg-black overflow-hidden flex flex-col min-h-0
-        ${isFullscreen ? 'fixed inset-0 z-50 w-full h-full' : 'rounded-xl'}`}
+      className={cn('flex size-full min-h-0 flex-col overflow-hidden rounded-xl bg-black text-white', fullscreen && 'rounded-none', className)}
     >
-      <video
-        ref={videoRef}
-        src={streamUrl(file.id)}
-        className="flex-1 min-h-0 w-full object-contain cursor-pointer block"
-        onPlay={() => setPlaying(true)}
-        onPause={() => setPlaying(false)}
-        onTimeUpdate={() => { if (!isScrubbing) setCurrentTime(videoRef.current?.currentTime || 0) }}
-        onLoadedMetadata={() => { setDuration(videoRef.current?.duration || 0); videoRef.current?.play().catch(() => {}) }}
-        onClick={togglePlay}
-        onDoubleClick={toggleFullscreen}
-        preload="metadata"
-      />
+      <div className="relative min-h-0 flex-1">
+        <video
+          ref={videoRef}
+          key={file.id}
+          src={streamUrl(file.id)}
+          className="size-full cursor-pointer object-contain"
+          preload="metadata"
+          playsInline
+          loop={loop}
+          aria-label={file.filename}
+          onClick={togglePlay}
+          onDoubleClick={toggleFullscreen}
+          onPlay={() => setPlaying(true)}
+          onPause={() => setPlaying(false)}
+          onTimeUpdate={() => setCurrentTime(videoRef.current?.currentTime || 0)}
+          onLoadedMetadata={() => {
+            const v = videoRef.current
+            if (!v) return
+            setDuration(v.duration || 0)
+            v.volume = volume; v.muted = muted
+            if (autoPlay) v.play().catch(() => {})
+          }}
+          onError={() => setError(true)}
+        />
+        {error && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/80 p-4 text-center text-xs text-white/80">
+            This file could not be played in the browser. You can still download it.
+          </div>
+        )}
+      </div>
 
-      {/* Controls — always dark */}
-      <div ref={controlsRef} className="px-4 py-3 space-y-2 bg-zinc-950/95 flex-shrink-0">
-        <div
-          ref={scrubBarRef}
-          className={`relative h-1.5 bg-zinc-700 rounded-full group
-            ${isScrubbing ? 'cursor-grabbing' : 'cursor-pointer'}`}
-          onMouseDown={handleScrubStart}
-        >
-          <div
-            className="absolute inset-y-0 left-0 bg-brand rounded-full transition-none"
-            style={{ width: `${progress}%` }}
-          />
-          <div
-            className={`absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full transition-opacity
-              ${isScrubbing ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
-            style={{ left: `calc(${progress}% - 6px)` }}
-          />
-        </div>
+      <div className="space-y-1.5 bg-zinc-950 px-3 pb-2 pt-2.5">
+        <Slider
+          value={[shown]}
+          min={0}
+          max={duration || 1}
+          step={0.01}
+          disabled={!duration}
+          aria-label="Seek"
+          onValueChange={(v) => {
+            const t = Array.isArray(v) ? v[0] : v
+            setScrub(t)
+            if (videoRef.current) videoRef.current.currentTime = t
+          }}
+          onValueCommitted={() => setScrub(null)}
+          className="[&_[data-slot=slider-thumb]]:size-3"
+        />
 
-        <div className="flex items-center gap-3">
-          <button onClick={() => stepFrame(-1)} className="p-1 text-zinc-300 hover:text-white transition-colors cursor-pointer" title="Prev frame (←)">
-            <SkipBack size={14} />
-          </button>
-          <button onClick={togglePlay} className="btn-primary px-3 py-1.5" aria-label={playing ? 'Pause' : 'Play'}>
-            {playing ? <Pause size={14} /> : <Play size={14} />}
-          </button>
-          <button onClick={() => stepFrame(1)} className="p-1 text-zinc-300 hover:text-white transition-colors cursor-pointer" title="Next frame (→)">
-            <SkipForward size={14} />
-          </button>
-          <span className="text-xs text-zinc-400 font-mono tabular-nums ml-1">
-            {formatTime(currentTime)} / {formatTime(duration)}
+        <div className="flex flex-wrap items-center gap-0.5 text-white">
+          <Tip label="Previous frame" keys=",">
+            <Button variant="ghost" size="icon" className="text-white hover:bg-white/15 hover:text-white" onClick={() => stepFrame(-1)} aria-label="Previous frame"><RiSkipBackMiniFill /></Button>
+          </Tip>
+          <Tip label={playing ? 'Pause' : 'Play'} keys="Space">
+            <Button variant="ghost" size="icon" className="text-white hover:bg-white/15 hover:text-white" onClick={togglePlay} aria-label={playing ? 'Pause' : 'Play'}>
+              {playing ? <RiPauseFill /> : <RiPlayFill />}
+            </Button>
+          </Tip>
+          <Tip label="Next frame" keys=".">
+            <Button variant="ghost" size="icon" className="text-white hover:bg-white/15 hover:text-white" onClick={() => stepFrame(1)} aria-label="Next frame"><RiSkipForwardMiniFill /></Button>
+          </Tip>
+          <span className="ml-1.5 font-mono text-xs tabular-nums text-white/70" aria-label="Playback position">
+            {formatTime(shown)} / {formatTime(duration)}
           </span>
 
           <div className="flex-1" />
 
-          <div className="flex items-center gap-1">
-            {RATES.map((r) => (
-              <button
-                key={r}
-                onClick={() => setPlaybackRate(r)}
-                className={`px-2 py-0.5 rounded text-xs font-medium transition-colors cursor-pointer
-                  ${rate === r ? 'bg-brand text-white' : 'text-zinc-400 hover:text-white'}`}
-              >
-                {r}x
-              </button>
-            ))}
-          </div>
+          <Tip label="Loop" keys="L">
+            <Toggle pressed={loop} onPressedChange={setLoop} aria-label="Loop" size="sm" className="text-white/80 hover:bg-white/15 hover:text-white aria-pressed:bg-white/20 aria-pressed:text-white">
+              <RiRepeatLine />
+            </Toggle>
+          </Tip>
 
-          <button
-            onClick={() => {
-              const v = videoRef.current
-              if (!v) return
-              const nowMuted = !muted
-              v.muted = nowMuted
-              setMuted(nowMuted)
-              localStorage.setItem(MUTED_KEY, nowMuted ? '1' : '0')
+          <DropdownMenu>
+            <DropdownMenuTrigger render={<Button variant="ghost" className="min-w-12 text-white hover:bg-white/15 hover:text-white aria-expanded:bg-white/15 aria-expanded:text-white" aria-label={`Playback speed ${rate}x`} />}>
+              <RiSpeedLine data-icon="inline-start" /> {rate}x
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" side="top">
+              <DropdownMenuRadioGroup value={String(rate)} onValueChange={(v) => changeRate(Number(v))}>
+                {RATES.map((r) => <DropdownMenuRadioItem key={r} value={String(r)}>{r}x</DropdownMenuRadioItem>)}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <Tip label={muted ? 'Unmute' : 'Mute'} keys="M">
+            <Button variant="ghost" size="icon" className="text-white hover:bg-white/15 hover:text-white" onClick={toggleMute} aria-label={muted ? 'Unmute' : 'Mute'}><VolIcon /></Button>
+          </Tip>
+          <Slider
+            value={[muted ? 0 : volume]}
+            min={0}
+            max={1}
+            step={0.05}
+            aria-label="Volume"
+            className="mx-1 shrink-0 data-horizontal:w-20"
+            onValueChange={(v) => {
+              const val = Array.isArray(v) ? v[0] : v
+              const nowMuted = val === 0
+              setVolume(val); setMuted(nowMuted)
+              if (videoRef.current) { videoRef.current.volume = val; videoRef.current.muted = nowMuted }
+              writeStorage(VOLUME_KEY, String(val)); writeStorage(MUTED_KEY, nowMuted ? '1' : '0')
             }}
-            className="p-1 text-zinc-300 hover:text-white transition-colors cursor-pointer"
-          >
-            {muted ? <VolumeX size={14} /> : <Volume2 size={14} />}
-          </button>
-          <input type="range" min="0" max="1" step="0.05" value={muted ? 0 : volume}
-            onChange={handleVolumeChange} className="w-20 accent-brand" aria-label="Volume" />
-
-          <button onClick={toggleFullscreen} className="p-1 text-zinc-300 hover:text-white transition-colors cursor-pointer ml-1"
-            title={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'}>
-            {isFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-          </button>
+          />
+          <Tip label={fullscreen ? 'Exit fullscreen' : 'Fullscreen'} keys="F">
+            <Button variant="ghost" size="icon" className="text-white hover:bg-white/15 hover:text-white" onClick={toggleFullscreen} aria-label={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
+              {fullscreen ? <RiFullscreenExitLine /> : <RiFullscreenLine />}
+            </Button>
+          </Tip>
         </div>
       </div>
-    </div>
-  )
-
-  if (isFullscreen) return box
-
-  // The slot fills the available area; the box is centered and sized to fit it.
-  return (
-    <div ref={slotRef} className="w-full h-full flex items-center justify-center">
-      {box}
     </div>
   )
 }
