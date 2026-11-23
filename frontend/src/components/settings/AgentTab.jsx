@@ -206,10 +206,10 @@ function ActivityCard() {
 export default function AgentTab() {
   return (
     <div className="grid gap-4">
+      <AgentDocs />
       <ConfirmationCard />
       <TokenCard />
       <ActivityCard />
-      <AgentDocs />
     </div>
   )
 }
