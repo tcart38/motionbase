@@ -19,6 +19,7 @@ Over the API:
 | Call | Purpose |
 |---|---|
 | `GET /api/auth/status` | Public. `{enabled, setup_required, user, version}` |
+| `GET /api/auth/directory` | Any signed-in user (or anyone while login is off). `{users:[{id, display_name, username}]}` for every account including disabled ones; used by the Library's "Uploaded by" filter |
 | `POST /api/auth/setup` | First run, only while no users exist. Creates the admin, turns login on, signs in |
 | `POST /api/auth/enable` | Login is off but accounts exist: an admin's `{username, password}` turns it on |
 | `POST /api/auth/login`, `/logout` | Sign in or out |
@@ -29,7 +30,7 @@ Over the API:
 
 - **Settings > Accounts**: turn login on or off, change your display name and password, and (admins) manage users, reset passwords, read the audit log.
 - **Sidebar footer**: your name and role, with Change password and Sign out.
-- **Library**: each card shows who added the file ("Library scan", "Imported" or the person's name). Sort by Uploader, or use the "Uploaded by" filter (the URL keeps `uploader=<id>` or `uploader=none`). Normal users cannot list accounts, so their filter offers themselves plus the uploaders of files already loaded.
+- **Library**: each card shows who added the file ("Library scan", "Imported" or the person's name). Sort by Uploader, or use the "Uploaded by" filter (the URL keeps `uploader=<id>` or `uploader=none`). The filter lists everyone from `GET /api/auth/directory`, including disabled accounts.
 - **Player > History**: a timeline of changes (newest first) ending with the upload entry. Agent changes show the token name with an AI badge.
 
 ## Roles

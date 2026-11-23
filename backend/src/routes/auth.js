@@ -59,6 +59,14 @@ router.get('/status', (req, res) => {
   })
 })
 
+// Who exists, for pickers such as the Library's "Uploaded by" filter. Any signed-in user (or anyone while
+// login is off). Includes disabled accounts because they may have uploaded files. No secrets or roles.
+router.get('/directory', (req, res) => {
+  if (req.authEnabled && !req.user) return res.status(401).json({ error: 'Login required', login_required: true })
+  const rows = getDb().prepare('SELECT id, display_name, username FROM users ORDER BY display_name COLLATE NOCASE, id').all()
+  res.json({ users: rows })
+})
+
 // First run: creates the first admin, turns login on and signs them in.
 router.post('/setup', wrap(async (req, res) => {
   const db = getDb()

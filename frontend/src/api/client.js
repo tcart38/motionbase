@@ -109,6 +109,7 @@ export const authDisable = (password) => request('/auth/disable', { method: 'POS
 export const changeOwnPassword = (current, next) => request('/auth/password', { method: 'POST', body: { current, new: next } })
 export const updateMe = (display_name) => request('/auth/me', { method: 'PATCH', body: { display_name } })
 export const getUsers = () => request('/users')
+export const getUserDirectory = () => request('/auth/directory')
 export const createUser = (body) => request('/users', { method: 'POST', body })
 export const updateUser = (id, body) => request(`/users/${id}`, { method: 'PATCH', body })
 export const resetUserPassword = (id, password) => request(`/users/${id}/password`, { method: 'POST', body: { password } })

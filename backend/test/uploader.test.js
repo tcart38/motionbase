@@ -92,3 +92,19 @@ test('filter and sort by uploader', async () => {
   const agNone = (await t.get('/api/agent/v1/files?uploader=none', H)).data
   assert.ok(agNone.files.every((f) => f.uploader === null))
 })
+
+test('GET /api/auth/directory lists every account (incl. disabled) for any signed-in user, minimal fields', async () => {
+  await t.patch(`/api/users/${bobId}`, { disabled: true }, A)
+  const anon = await t.get('/api/auth/directory')
+  assert.equal(anon.status, 401)
+  const res = await t.get('/api/auth/directory', A)
+  assert.equal(res.status, 200)
+  const ids = res.data.users.map((u) => u.id)
+  assert.ok(ids.includes(adminId) && ids.includes(bobId))
+  for (const u of res.data.users) assert.deepEqual(Object.keys(u).sort(), ['display_name', 'id', 'username'])
+  await t.patch(`/api/users/${bobId}`, { disabled: false }, A)
+  const B2 = { Cookie: (await t.post('/api/auth/login', { username: 'bob', password: PW })).headers.get('set-cookie').split(';')[0] }
+  const asBob = await t.get('/api/auth/directory', B2)
+  assert.equal(asBob.status, 200)
+  assert.equal(asBob.data.users.length, 2)
+})

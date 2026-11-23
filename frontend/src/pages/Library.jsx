@@ -20,7 +20,7 @@ import LibraryToolbar, { GRID_SIZES } from '@/components/library/LibraryToolbar.
 import FilterBar from '@/components/library/FilterBar.jsx'
 import BulkBar from '@/components/library/BulkBar.jsx'
 import PlayerDialog from '@/components/library/PlayerDialog.jsx'
-import { getFiles, getUsers, patchFile } from '@/api/client.js'
+import { getFiles, getUserDirectory, patchFile } from '@/api/client.js'
 import { useAuth } from '@/context/AuthContext.jsx'
 import { useTaxonomy } from '@/hooks/useTaxonomy.js'
 import { useFolders } from '@/hooks/useFolders.js'
@@ -40,7 +40,7 @@ export default function Library() {
   const { data: folderData } = useFolders()
   const { data: counts } = useFileCounts()
   const bulk = useBulkActions()
-  const { enabled: loginOn, isAdmin, user: me } = useAuth()
+  const { enabled: loginOn, user: me } = useAuth()
 
   // Filters live in the URL: shareable, and they survive opening a video and coming back.
   const selectedTags = useMemo(
@@ -107,13 +107,12 @@ export default function Library() {
   }, [query.data])
   const total = query.data?.pages[0]?.total ?? 0
 
-  // People to offer in "Uploaded by". Only admins may list users; everyone else gets themselves plus
-  // whoever appears on files loaded so far.
-  const { data: userData } = useQuery({ queryKey: ['users'], queryFn: getUsers, enabled: loginOn && isAdmin })
+  // People to offer in "Uploaded by": everyone with an account (disabled ones too, they may have uploaded files).
+  const { data: userData } = useQuery({ queryKey: ['user-directory'], queryFn: getUserDirectory, enabled: loginOn, staleTime: 60_000 })
   const seenUploaders = useRef(new Map())
   for (const f of files) if (f.uploader) seenUploaders.current.set(f.uploader.id, f.uploader)
   if (me) seenUploaders.current.set(me.id, me)
-  const uploaderOptions = (loginOn && isAdmin && userData ? userData.users : [...seenUploaders.current.values()])
+  const uploaderOptions = (loginOn && userData ? userData.users : [...seenUploaders.current.values()])
     .slice().sort((a, b) => String(a.display_name).localeCompare(String(b.display_name)))
   const filesRef = useRef(files)
   filesRef.current = files
