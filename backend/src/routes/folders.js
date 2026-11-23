@@ -49,7 +49,7 @@ router.post('/import-from-disk', (req, res) => {
   try {
     db.transaction(() => {
       const files = db.prepare(
-        'SELECT id, filepath FROM files WHERE is_missing = 0 AND folder_id IS NULL'
+        'SELECT id, filepath FROM files WHERE is_missing = 0 AND deleted_at IS NULL AND folder_id IS NULL'
       ).all()
       for (const f of files) {
         const rel = path.relative(mediaDir, path.dirname(f.filepath))

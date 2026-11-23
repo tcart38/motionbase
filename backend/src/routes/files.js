@@ -26,6 +26,7 @@ router.get('/', (req, res) => {
     subfolders = '',
     status = '',
     source = '',
+    trash = '',
   } = req.query
 
   const sortCol = SORT_COLUMNS[sort] || 'f.date_added'
@@ -34,7 +35,7 @@ router.get('/', (req, res) => {
   const offset = (Math.max(1, parseInt(page, 10)) - 1) * Math.max(1, parseInt(limit, 10))
   const limitVal = Math.max(1, parseInt(limit, 10))
 
-  const { where, params: allParams } = buildFileFilter(db, { view, tags, search, favorites, untagged, folder, subfolders, status, source })
+  const { where, params: allParams } = buildFileFilter(db, { view, tags, search, favorites, untagged, folder, subfolders, status, source, trash })
 
   const countSql = `SELECT COUNT(*) AS total FROM files f WHERE ${where}`
   const { total } = db.prepare(countSql).get(...allParams)
@@ -55,12 +56,66 @@ router.get('/', (req, res) => {
 // inbox = not yet confirmed by a person (includes files an agent reviewed that await confirmation).
 router.get('/counts', (req, res) => {
   const db = getDb()
-  const one = (where) => db.prepare(`SELECT COUNT(*) AS n FROM files f WHERE f.is_missing = 0 ${where}`).get().n
+  const one = (where) => db.prepare(`SELECT COUNT(*) AS n FROM files f WHERE f.is_missing = 0 AND f.deleted_at IS NULL ${where}`).get().n
   res.json({
     inbox: one('AND f.reviewed_at IS NULL'),
     needs_review: one('AND f.reviewed_at IS NULL AND f.agent_reviewed_at IS NOT NULL'),
     total: one(''),
+    trash: db.prepare('SELECT COUNT(*) AS n FROM files WHERE is_missing = 0 AND deleted_at IS NOT NULL').get().n,
   })
+})
+
+// POST /api/files/trash { file_ids: [..<=500], deleted: true|false }
+// Soft delete (default) or restore. Nothing is removed from disk; the scanner keeps ignoring trashed files.
+router.post('/trash', (req, res) => {
+  const db = getDb()
+  const { file_ids, deleted = true } = req.body || {}
+  if (!Array.isArray(file_ids) || file_ids.length === 0 || file_ids.length > 500 || !file_ids.every(Number.isInteger)) {
+    throw new HttpError(400, 'file_ids must be 1-500 integers')
+  }
+  const stamp = deleted ? new Date().toISOString() : null
+  const updated = db.transaction(() => {
+    const upd = db.prepare('UPDATE files SET deleted_at = ? WHERE id = ?')
+    let n = 0
+    for (const id of file_ids) {
+      if (!db.prepare('SELECT 1 FROM files WHERE id = ?').get(id)) throw new HttpError(404, `File ${id} not found`)
+      n += upd.run(stamp, id).changes
+    }
+    return n
+  })()
+  res.json({ updated, deleted: !!deleted })
+})
+
+// POST /api/files/purge { file_ids } or { all: true }
+// Permanently deletes TRASHED files: removes the media file from disk, its thumbnail/frames and the record.
+// If the media folder is read-only the file stays in the Trash and is reported under `failed`.
+router.post('/purge', (req, res) => {
+  const db = getDb()
+  const { file_ids, all } = req.body || {}
+  let rows
+  if (all === true) {
+    rows = db.prepare('SELECT * FROM files WHERE deleted_at IS NOT NULL').all()
+  } else {
+    if (!Array.isArray(file_ids) || file_ids.length === 0 || file_ids.length > 500 || !file_ids.every(Number.isInteger)) {
+      throw new HttpError(400, 'file_ids must be 1-500 integers, or pass all: true')
+    }
+    rows = file_ids.map((id) => db.prepare('SELECT * FROM files WHERE id = ? AND deleted_at IS NOT NULL').get(id)).filter(Boolean)
+  }
+  const purged = []
+  const failed = []
+  for (const file of rows) {
+    try {
+      rmSync(file.filepath, { force: true })
+    } catch (err) {
+      failed.push({ id: file.id, filename: file.filename, error: err.code === 'EROFS' || err.code === 'EACCES' || err.code === 'EPERM' ? 'Media folder is read-only' : err.message })
+      continue
+    }
+    db.prepare('DELETE FROM files WHERE id = ?').run(file.id)
+    try { rmSync(file.thumbnail_path || path.join(config.thumbnailsDir, `${file.id}.jpg`), { force: true }) } catch {}
+    try { rmSync(path.join(config.framesDir, String(file.id)), { recursive: true, force: true }) } catch {}
+    purged.push(file.id)
+  }
+  res.json({ purged: purged.length, failed })
 })
 
 // POST /api/files/bulk
@@ -99,12 +154,12 @@ router.get('/:id', (req, res) => {
 // GET /api/files/:id/next — id of the next file in the current filtered/sorted view (wraps around)
 router.get('/:id/next', (req, res) => {
   const db = getDb()
-  const { view = 'all', tags = '', sort = 'date_added', order = 'desc', search = '', favorites = '', untagged = '', folder = '', subfolders = '', status = '', source = '' } = req.query
+  const { view = 'all', tags = '', sort = 'date_added', order = 'desc', search = '', favorites = '', untagged = '', folder = '', subfolders = '', status = '', source = '', trash = '' } = req.query
 
   const sortCol = SORT_COLUMNS[sort] || 'f.date_added'
   const sortDir = order === 'asc' ? 'ASC' : 'DESC'
 
-  const { where, params } = buildFileFilter(db, { view, tags, search, favorites, untagged, folder, subfolders, status, source })
+  const { where, params } = buildFileFilter(db, { view, tags, search, favorites, untagged, folder, subfolders, status, source, trash })
 
   const ids = db.prepare(`
     SELECT f.id FROM files f WHERE ${where} ORDER BY ${sortCol} ${sortDir}, f.id ${sortDir}

@@ -61,7 +61,7 @@ function parseId(v) {
 
 function requireFile(db, id) {
   const f = db.prepare('SELECT * FROM files WHERE id = ?').get(id)
-  if (!f) throw new HttpError(404, 'File not found')
+  if (!f || f.deleted_at) throw new HttpError(404, 'File not found')
   return f
 }
 
@@ -137,7 +137,7 @@ router.get('/status', wrap(async (req, res) => {
   }
   const now = new Date().toISOString()
   const { leased } = db.prepare(
-    'SELECT COUNT(*) AS leased FROM files WHERE is_missing = 0 AND lease_until > ?'
+    'SELECT COUNT(*) AS leased FROM files WHERE is_missing = 0 AND deleted_at IS NULL AND lease_until > ?'
   ).get(now)
   res.json({
     version,

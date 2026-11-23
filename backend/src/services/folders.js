@@ -19,7 +19,7 @@ export function getFolder(db, id) {
 export function getTree(db) {
   const rows = db.prepare(`
     SELECT f.id, f.parent_id, f.name, f.position, f.created_at,
-      (SELECT COUNT(*) FROM files x WHERE x.folder_id = f.id AND x.is_missing = 0) AS file_count
+      (SELECT COUNT(*) FROM files x WHERE x.folder_id = f.id AND x.is_missing = 0 AND x.deleted_at IS NULL) AS file_count
     FROM folders f
     ORDER BY f.position, f.name COLLATE NOCASE, f.id
   `).all()
@@ -35,9 +35,9 @@ export function getTree(db) {
       p = byId.get(p).parent_id
     }
   }
-  const { all_count } = db.prepare('SELECT COUNT(*) AS all_count FROM files WHERE is_missing = 0').get()
+  const { all_count } = db.prepare('SELECT COUNT(*) AS all_count FROM files WHERE is_missing = 0 AND deleted_at IS NULL').get()
   const { unfiled_count } = db.prepare(
-    'SELECT COUNT(*) AS unfiled_count FROM files WHERE is_missing = 0 AND folder_id IS NULL'
+    'SELECT COUNT(*) AS unfiled_count FROM files WHERE is_missing = 0 AND deleted_at IS NULL AND folder_id IS NULL'
   ).get()
   return { folders: [...byId.values()], all_count, unfiled_count }
 }

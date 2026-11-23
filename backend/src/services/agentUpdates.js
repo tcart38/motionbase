@@ -72,7 +72,7 @@ function resolveItem(db, item, idx, tax, state) {
 
   if (!Number.isInteger(item.file_id)) { err('file_id must be an integer'); return out }
   const file = db.prepare('SELECT * FROM files WHERE id = ?').get(item.file_id)
-  if (!file) { err(`file ${item.file_id} not found`); return out }
+  if (!file || file.deleted_at) { err(`file ${item.file_id} not found`); return out }
   if (state.seen.has(file.id)) { err(`duplicate file_id ${file.id} in batch`); return out }
   state.seen.add(file.id)
   out.file = file
