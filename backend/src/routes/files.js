@@ -24,6 +24,8 @@ router.get('/', (req, res) => {
     untagged = '',
     folder = '',
     subfolders = '',
+    status = '',
+    source = '',
   } = req.query
 
   const sortCol = SORT_COLUMNS[sort] || 'f.date_added'
@@ -32,7 +34,7 @@ router.get('/', (req, res) => {
   const offset = (Math.max(1, parseInt(page, 10)) - 1) * Math.max(1, parseInt(limit, 10))
   const limitVal = Math.max(1, parseInt(limit, 10))
 
-  const { where, params: allParams } = buildFileFilter(db, { view, tags, search, favorites, untagged, folder, subfolders })
+  const { where, params: allParams } = buildFileFilter(db, { view, tags, search, favorites, untagged, folder, subfolders, status, source })
 
   const countSql = `SELECT COUNT(*) AS total FROM files f WHERE ${where}`
   const { total } = db.prepare(countSql).get(...allParams)
@@ -47,6 +49,18 @@ router.get('/', (req, res) => {
   const files = attachTags(db, rows)
 
   res.json({ files, total, page: parseInt(page, 10), limit: limitVal })
+})
+
+// GET /api/files/counts -> { inbox, needs_review, total }
+// inbox = not yet confirmed by a person (includes files an agent reviewed that await confirmation).
+router.get('/counts', (req, res) => {
+  const db = getDb()
+  const one = (where) => db.prepare(`SELECT COUNT(*) AS n FROM files f WHERE f.is_missing = 0 ${where}`).get().n
+  res.json({
+    inbox: one('AND f.reviewed_at IS NULL'),
+    needs_review: one('AND f.reviewed_at IS NULL AND f.agent_reviewed_at IS NOT NULL'),
+    total: one(''),
+  })
 })
 
 // POST /api/files/bulk
@@ -85,12 +99,12 @@ router.get('/:id', (req, res) => {
 // GET /api/files/:id/next — id of the next file in the current filtered/sorted view (wraps around)
 router.get('/:id/next', (req, res) => {
   const db = getDb()
-  const { tags = '', sort = 'date_added', order = 'desc', search = '', favorites = '', untagged = '', folder = '', subfolders = '' } = req.query
+  const { view = 'all', tags = '', sort = 'date_added', order = 'desc', search = '', favorites = '', untagged = '', folder = '', subfolders = '', status = '', source = '' } = req.query
 
   const sortCol = SORT_COLUMNS[sort] || 'f.date_added'
   const sortDir = order === 'asc' ? 'ASC' : 'DESC'
 
-  const { where, params } = buildFileFilter(db, { view: 'all', tags, search, favorites, untagged, folder, subfolders })
+  const { where, params } = buildFileFilter(db, { view, tags, search, favorites, untagged, folder, subfolders, status, source })
 
   const ids = db.prepare(`
     SELECT f.id FROM files f WHERE ${where} ORDER BY ${sortCol} ${sortDir}, f.id ${sortDir}

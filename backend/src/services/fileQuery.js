@@ -9,7 +9,7 @@ export const SORT_COLUMNS = { date_added: 'f.date_added', filename: 'f.filename'
 
 // Shared WHERE-clause builder for the file list and the filter-aware "next file" lookup.
 // Tag filtering is AND-across-categories, OR-within-category.
-export function buildFileFilter(db, { view = 'all', tags = '', search = '', favorites = '', untagged = '', folder = '', subfolders = '', status = '' } = {}) {
+export function buildFileFilter(db, { view = 'all', tags = '', search = '', favorites = '', untagged = '', folder = '', subfolders = '', status = '', source = '' } = {}) {
   const tagIds = tags ? String(tags).split(',').map(Number).filter(Boolean) : []
   const tagConditions = []
   const tagParams = []
@@ -71,13 +71,14 @@ export function buildFileFilter(db, { view = 'all', tags = '', search = '', favo
 
   const where = [
     'f.is_missing = 0',
-    view === 'inbox' ? 'f.needs_tagging = 1' : null,
+    view === 'inbox' ? 'f.reviewed_at IS NULL' : null,
     favorites === '1' ? 'f.is_favorite = 1' : null,
     search.trim() ? '(f.filename LIKE ? OR f.notes LIKE ?)' : null,
     folderCondition,
     untaggedCondition,
     status === 'untagged' ? UNTAGGED_SQL : null,
     statusCondition,
+    source === 'agent' ? "EXISTS (SELECT 1 FROM file_tags ag WHERE ag.file_id = f.id AND ag.source = 'agent')" : null,
     ...tagConditions,
   ].filter(Boolean).join(' AND ')
 
