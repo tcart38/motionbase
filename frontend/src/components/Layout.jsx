@@ -6,7 +6,7 @@ import {
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent,
   SidebarHeader, SidebarInset, SidebarMenu, SidebarMenuBadge, SidebarMenuButton,
-  SidebarMenuItem, SidebarProvider, SidebarRail, SidebarTrigger,
+  SidebarMenuItem, SidebarProvider, SidebarTrigger,
 } from '@/components/ui/sidebar.jsx'
 import FolderTree from '@/components/FolderTree.jsx'
 import CommandPalette from '@/components/CommandPalette.jsx'
@@ -52,9 +52,12 @@ export default function Layout() {
 
       <Sidebar collapsible="icon">
         <SidebarHeader>
-          <span className="px-2 py-1.5 text-base font-semibold tracking-tight group-data-[collapsible=icon]:hidden">
-            MotionBase
-          </span>
+          <div className="flex items-center justify-between gap-2 group-data-[collapsible=icon]:justify-center">
+            <span className="px-2 py-1.5 text-base font-semibold tracking-tight group-data-[collapsible=icon]:hidden">
+              MotionBase
+            </span>
+            <SidebarTrigger className="hidden md:inline-flex" />
+          </div>
         </SidebarHeader>
 
         <SidebarContent>
@@ -109,7 +112,6 @@ export default function Layout() {
             </SidebarMenuItem>
           </SidebarMenu>
         </SidebarFooter>
-        <SidebarRail />
       </Sidebar>
 
       <SidebarInset className="min-w-0 h-svh overflow-hidden">

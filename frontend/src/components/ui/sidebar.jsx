@@ -233,11 +233,14 @@ function SidebarTrigger({
   onClick,
   ...props
 }) {
-  const { toggleSidebar } = useSidebar()
+  const { toggleSidebar, state, isMobile } = useSidebar()
+  const label = isMobile ? "Open menu" : state === "collapsed" ? "Expand sidebar" : "Collapse sidebar"
 
   return (
     <Button
       data-sidebar="trigger"
+      aria-label={label}
+      title={label}
       data-slot="sidebar-trigger"
       variant="ghost"
       size="icon-sm"
@@ -249,7 +252,7 @@ function SidebarTrigger({
       {...props}
     >
       <RiSideBarLine />
-      <span className="sr-only">Toggle Sidebar</span>
+      <span className="sr-only">{label}</span>
     </Button>
   )
 }
