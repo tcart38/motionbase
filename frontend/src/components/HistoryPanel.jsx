@@ -68,7 +68,7 @@ function NotesChange({ detail }) {
       {(long || (from && to)) && (
         <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}
           className="w-fit text-xs text-primary underline-offset-2 hover:underline">
-          {open ? 'Hide details' : 'Show from / to'}
+          {open ? 'Hide details' : from && to ? 'Show from / to' : 'Show full note'}
         </button>
       )}
     </div>

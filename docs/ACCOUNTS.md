@@ -25,6 +25,13 @@ Over the API:
 | `POST /api/auth/password`, `PATCH /api/auth/me` | Change own password / display name |
 | `POST /api/auth/disable` | Admin turns login off (`{password}`) |
 
+## In the app
+
+- **Settings > Accounts**: turn login on or off, change your display name and password, and (admins) manage users, reset passwords, read the audit log.
+- **Sidebar footer**: your name and role, with Change password and Sign out.
+- **Library**: each card shows who added the file ("Library scan", "Imported" or the person's name). Sort by Uploader, or use the "Uploaded by" filter (the URL keeps `uploader=<id>` or `uploader=none`). Normal users cannot list accounts, so their filter offers themselves plus the uploaders of files already loaded.
+- **Player > History**: a timeline of changes (newest first) ending with the upload entry. Agent changes show the token name with an AI badge.
+
 ## Roles
 
 | | User | Admin |
