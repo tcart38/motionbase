@@ -4,29 +4,26 @@ A self-hosted library for motion and graphic design inspiration. MotionBase watc
 
 ## Features
 
-- **Auto-scanning** — point it at a media folder and it indexes new files on a schedule (or on demand), extracting duration, resolution, fps, aspect ratio, and file size via `ffprobe`, and generating a thumbnail for each file.
-- **Inbox workflow** — newly scanned files land in an Inbox view so you can tag/review them before they show up in the main Library.
-- **Tagging with categories** — organize tags into categories (e.g. Brand, Video Type, 2D/3D) with an auto-managed "Aspect Ratio" category. Filtering is AND-across-categories, OR-within-category. Categories with many tags collapse to the most-used, with a searchable popover for the rest.
-- **Bulk tagging** — select multiple files in the Library and apply/remove tags across all of them at once.
-- **Search & filter** — filter by tag combination, favorites, or "No Tags" (untagged); search by filename; sort by date added, filename, or duration. Filters live in the URL, so they survive navigating into a file and back.
-- **Library preview & playback** — hover a card to scrub through a clip, or play it in place in a modal without leaving the grid (with an "Open Page" jump to the full Player). The grid remembers your scroll position when you return.
-- **Player view** — stream video with range-request seeking, frame-by-frame stepping, adjustable playback speed, and volume that persists across files. A resizable side panel toggles between Tags and Notes, and metadata is shown alongside. Sized to fit the screen without page scrolling.
-- **Favorites & notes** — star files and jot down freeform notes on them.
-- **URL import** — paste a video URL and MotionBase downloads it (via `yt-dlp`) straight into your media folder, then auto-scans it in.
-- **File upload** — drag-and-drop files directly into the media folder from the browser.
-- **Virtual folders** — organise the library into nested folders that live only in the database (your media directory is never rearranged). Optionally mirror the on-disk directory structure with `POST /api/folders/import-from-disk`.
-- **Agent API** — let an AI agent (or script) triage the Inbox: view frames/contact sheets, apply tags, notes and folders in atomic, dry-runnable batches, with an undoable activity log. See [docs/AGENT_API.md](docs/AGENT_API.md).
-- **Light/dark mode.**
+- **Auto-scanning**: point it at a media folder and it indexes new files on a schedule (or on demand), extracting duration, resolution, fps, aspect ratio and file size via `ffprobe`, and generating a thumbnail for each file.
+- **Inbox triage**: new files land in the Inbox, where you work through a queue with a large preview, tags, folder and notes, driven by the keyboard (`j`/`k` to move, `e` to confirm, `1`-`9` to toggle tags, `z` to undo). Files an agent has already tagged show up under "Needs review" for you to confirm.
+- **Library**: a fast, infinite-scrolling grid with a filter bar and filter chips (tags, favorites, untagged, AI-tagged, folder), search over filenames and notes, sorting, multi-select with Shift-click ranges, and bulk actions (tag, move, favorite, mark reviewed) that all come with an Undo toast. Hover a card to scrub it, or play it in place.
+- **Tags with categories**: organise tags into categories (Brand, Video Type, 2D/3D, ...). Each category has a description (shown to agents) and a selection mode, single or multiple tags. Filtering is AND across categories, OR within one. An "Aspect Ratio" category is maintained automatically.
+- **Virtual folders**: nested folders that live only in the database; your media directory is never rearranged. Manage them from the sidebar (drag media onto a folder) or Settings > Folders, and optionally mirror the on-disk layout with "Import from disk structure".
+- **Player**: range-request streaming with keyboard control (space, `m`, `f`, `,`/`.` frame step, `[`/`]` speed), a resizable side panel with Tags, Notes (autosaved) and Info tabs, favorites and download.
+- **Add media**: drag-and-drop upload, or paste a video URL and MotionBase downloads it with `yt-dlp` (optionally using a `cookies.txt` you paste in Settings) and scans it in.
+- **Agent API**: let an AI agent (or script) triage the Inbox: view frames and contact sheets, apply tags, notes and folders in atomic, dry-runnable batches, with an undoable activity log. Manage tokens, the "require my confirmation" switch and the activity log under Settings > Agent API. See [docs/AGENT_API.md](docs/AGENT_API.md).
+- **Command palette and shortcuts**: `Ctrl/Cmd+K` jumps to pages, folders, tags and files and runs actions; `?` lists every shortcut; `g l`, `g i`, `g a`, `g s` go to Library, Inbox, Add Media and Settings.
+- **Light, dark or system theme**, keyboard-accessible UI, responsive down to phone widths.
 
 ## Tech stack
 
-- **Backend**: Node.js + Express, SQLite (via `better-sqlite3`), `ffprobe`/`ffmpeg` for metadata & thumbnails, `yt-dlp` for URL imports.
-- **Frontend**: React + Vite + Tailwind CSS.
+- **Backend**: Node.js 20+ and Express, SQLite via `better-sqlite3` with versioned migrations (`PRAGMA user_version`, automatic pre-upgrade backup), `ffprobe`/`ffmpeg` for metadata, thumbnails and agent frames, `yt-dlp` for URL imports. Tests use `node:test`.
+- **Frontend**: React 19, Vite 5 and Tailwind CSS v4. UI built on [shadcn/ui](https://ui.shadcn.com) (Base UI primitives, preset `b7CSfRACu`, Remix icons, Inter font), TanStack Query for data fetching, react-router 6, sonner toasts and cmdk for the command palette. Plain JavaScript (no TypeScript). See `frontend/DESIGN_NOTES.md`.
 - **Deployment**: single Docker image (multi-stage build bundles the frontend into the backend's static assets). Every push to `main` auto-builds and publishes the image to GitHub Container Registry as `ghcr.io/tcart38/motionbase:latest` via GitHub Actions (`.github/workflows/docker-publish.yml`).
 
 ## Running locally (development)
 
-Requires Node.js 20+, and `ffmpeg` installed and on your `PATH` (for thumbnails/metadata). `python3` + `yt-dlp` are only needed if you want URL import to work locally.
+Requires Node.js 20+ (22 recommended) and `ffmpeg` on your `PATH` (thumbnails, metadata, agent frames). `python3` + `yt-dlp` are only needed for URL import. The repo uses npm.
 
 ```bash
 # Backend
@@ -34,12 +31,16 @@ cd backend
 cp .env.example .env   # edit MEDIA_DIR / DATA_DIR to local paths
 npm install
 npm run dev             # runs on http://localhost:3001
+npm test                # backend tests
 
 # Frontend (separate terminal)
 cd frontend
 npm install
-npm run dev              # runs on http://localhost:5173, proxies /api to :3001
+npm run dev              # runs on http://localhost:5173, proxies /api and /thumbnails to :3001
+npm run build            # production bundle in frontend/dist
 ```
+
+The frontend path alias `@` maps to `frontend/src`. Add shadcn components with `npx shadcn@latest add <name>` from `frontend/` (it reads `components.json`).
 
 Set `MEDIA_DIR` in `backend/.env` to a folder of video/image files you want indexed, and `DATA_DIR` to a writable folder for the SQLite database and generated thumbnails.
 
@@ -92,7 +93,7 @@ Everything MotionBase needs to keep is under `DATA_DIR`: the SQLite database (`m
 
 ### A note on `yt-dlp` cookies
 
-If you use URL import against sites that require a login (e.g. to download something you have access to but is behind auth), MotionBase can use a `cookies.txt` file for `yt-dlp`. This file contains live session cookies — **never commit it to git** (it's already covered by `.gitignore` via `.data/`), and treat it the same as a password.
+If you use URL import against sites that require a login (e.g. to download something you have access to but is behind auth), MotionBase can use a `cookies.txt` file for `yt-dlp`: paste it under Settings > General and it is saved as `DATA_DIR/cookies.txt` and passed to `yt-dlp --cookies` on every import (remove it there too). This file contains live session cookies — **never commit it to git** (it's already covered by `.gitignore` via `.data/`), and treat it the same as a password.
 
 ## Agent API
 

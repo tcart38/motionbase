@@ -187,15 +187,15 @@ export default function Player() {
       <div className="flex flex-wrap items-center gap-1.5">
         <Button variant="outline" onClick={toggleFavorite} aria-pressed={!!file.is_favorite}>
           {file.is_favorite ? <RiStarFill data-icon="inline-start" className="text-amber-500" /> : <RiStarLine data-icon="inline-start" />}
-          <span className="hidden sm:inline">{file.is_favorite ? 'Favorited' : 'Favorite'}</span>
+          <span className="max-sm:sr-only">{file.is_favorite ? 'Favorited' : 'Favorite'}</span>
         </Button>
         {!file.reviewed_at && (
           <Button variant="outline" onClick={() => bulk.markReviewed([file])}>
-            <RiCheckDoubleLine data-icon="inline-start" /> <span className="hidden sm:inline">Mark reviewed</span>
+            <RiCheckDoubleLine data-icon="inline-start" /> <span className="max-sm:sr-only">Mark reviewed</span>
           </Button>
         )}
         <Button variant="outline" render={<a href={downloadUrl(file.id)} download={file.filename} />}>
-          <RiDownloadLine data-icon="inline-start" /> <span className="hidden sm:inline">Download</span>
+          <RiDownloadLine data-icon="inline-start" /> <span className="max-sm:sr-only">Download</span>
         </Button>
         <Button onClick={goNext} disabled={nextLoading}>
           Next <RiArrowRightLine data-icon="inline-end" />

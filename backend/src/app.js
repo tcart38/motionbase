@@ -13,6 +13,7 @@ import uploadRouter from './routes/upload.js'
 import foldersRouter from './routes/folders.js'
 import tokensRouter from './routes/tokens.js'
 import activityRouter from './routes/activity.js'
+import cookiesRouter from './routes/cookies.js'
 import agentRouter from './routes/agent.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -32,6 +33,7 @@ export function createApp({ serveFrontend = config.isProd } = {}) {
   app.use('/api/categories', categoriesRouter)
   app.use('/api/settings', settingsRouter)
   app.use('/api/import', importRouter)
+  app.use('/api/cookies', cookiesRouter)
   app.use('/api/upload', uploadRouter)
   app.use('/api/folders', foldersRouter)
   app.use('/api/tokens', tokensRouter)

@@ -1,11 +1,29 @@
 import { Router } from 'express'
 import { spawn } from 'child_process'
 import { config } from '../config.js'
+import { existsSync } from 'fs'
 import { runScan } from '../services/scanner.js'
+import { getCookiesPath } from './cookies.js'
 
 const router = Router()
 
 const ANSI_RE = /\x1b\[[0-9;]*m/g
+
+// Arguments for `python3 ...`. Passes the uploaded cookies file (Settings > General) when present.
+export function buildYtdlpArgs(url) {
+  const outputTemplate = `${config.mediaDir}/[%(id)s] %(title)s.%(ext)s`
+  const cookies = getCookiesPath()
+  return [
+    '-m', 'yt_dlp',
+    '--output', outputTemplate,
+    '--trim-filenames', '150',
+    '--format', 'bestvideo+bestaudio/best',
+    '--merge-output-format', 'mp4',
+    '--no-playlist',
+    ...(existsSync(cookies) ? ['--cookies', cookies] : []),
+    url,
+  ]
+}
 
 router.post('/', async (req, res) => {
   const { url } = req.body
@@ -13,16 +31,7 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ error: 'A valid http/https URL is required' })
   }
 
-  const outputTemplate = `${config.mediaDir}/[%(id)s] %(title)s.%(ext)s`
-  const args = [
-    '-m', 'yt_dlp',
-    '--output', outputTemplate,
-    '--trim-filenames', '150',
-    '--format', 'bestvideo+bestaudio/best',
-    '--merge-output-format', 'mp4',
-    '--no-playlist',
-    url,
-  ]
+  const args = buildYtdlpArgs(url)
 
   res.setHeader('Content-Type', 'application/x-ndjson')
   res.setHeader('Cache-Control', 'no-cache')

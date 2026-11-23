@@ -5,10 +5,11 @@ import { config } from '../config.js'
 
 const router = Router()
 
-export const cookiesPath = path.join(config.dataDir, 'cookies.txt')
+// Resolved on each call so DATA_DIR changes (tests) are respected.
+export const getCookiesPath = () => path.join(config.dataDir, 'cookies.txt')
 
 router.get('/', (req, res) => {
-  res.json({ hasCookies: existsSync(cookiesPath) })
+  res.json({ hasCookies: existsSync(getCookiesPath()) })
 })
 
 router.post('/', (req, res) => {
@@ -17,7 +18,7 @@ router.post('/', (req, res) => {
     return res.status(400).json({ error: 'content is required' })
   }
   try {
-    writeFileSync(cookiesPath, content, 'utf8')
+    writeFileSync(getCookiesPath(), content, { encoding: 'utf8', mode: 0o600 })
     res.json({ ok: true })
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -26,7 +27,7 @@ router.post('/', (req, res) => {
 
 router.delete('/', (req, res) => {
   try {
-    if (existsSync(cookiesPath)) unlinkSync(cookiesPath)
+    if (existsSync(getCookiesPath())) unlinkSync(getCookiesPath())
     res.json({ ok: true })
   } catch (err) {
     res.status(500).json({ error: err.message })
