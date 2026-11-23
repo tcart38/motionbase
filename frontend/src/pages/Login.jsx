@@ -21,10 +21,6 @@ export default function Login() {
   const [displayName, setDisplayName] = useState('')
   const [again, setAgain] = useState('')
   const [created, setCreated] = useState(false) // sign-up done, waiting for approval
-  const signup = mode === 'signup' && signupsEnabled
-  const tooShort = password.length > 0 && password.length < MIN_PASSWORD
-  const mismatch = again.length > 0 && again !== password
-  const switchMode = (m) => { setMode(m); setError(null); setUntil(null); setPassword(''); setAgain(''); setCreated(false) }
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
@@ -37,6 +33,11 @@ export default function Login() {
     const t = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(t)
   }, [until])
+
+  const signup = mode === 'signup' && signupsEnabled
+  const tooShort = password.length > 0 && password.length < MIN_PASSWORD
+  const mismatch = again.length > 0 && again !== password
+  const switchMode = (m) => { setMode(m); setError(null); setUntil(null); setPassword(''); setAgain(''); setCreated(false) }
 
   const left = until ? Math.max(0, Math.ceil((until - now) / 1000)) : 0
   const limited = left > 0
