@@ -19,12 +19,15 @@ import { useDefaultLayout } from 'react-resizable-panels'
 import VideoPlayer from '@/components/VideoPlayer.jsx'
 import TagEditor from '@/components/TagEditor.jsx'
 import NotesEditor, { SaveIndicator } from '@/components/NotesEditor.jsx'
+import HistoryPanel from '@/components/HistoryPanel.jsx'
 import MoveToFolderDialog from '@/components/MoveToFolderDialog.jsx'
 import { getFile, getNextFile, patchFile, streamUrl, thumbnailUrl, downloadUrl } from '@/api/client.js'
 import { useFolders } from '@/hooks/useFolders.js'
 import { useBulkActions } from '@/hooks/useBulkActions.js'
 import { useIsMobile } from '@/hooks/use-mobile.js'
 import { folderPath } from '@/lib/folders.js'
+import { useAuth } from '@/context/AuthContext.jsx'
+import { sourceLabel } from '@/lib/people.js'
 
 function formatBytes(bytes) {
   if (!bytes) return null
@@ -36,6 +39,7 @@ function formatBytes(bytes) {
 }
 
 function InfoList({ file, folderLabel, onMove }) {
+  const { enabled } = useAuth()
   const rows = [
     ['Type', file.file_type],
     ['Dimensions', file.width ? `${file.width}×${file.height}` : '—'],
@@ -45,6 +49,10 @@ function InfoList({ file, folderLabel, onMove }) {
     ['Aspect ratio', file.aspect_ratio ?? '—'],
     ['Added', file.date_added ? new Date(file.date_added.replace(' ', 'T') + 'Z').toLocaleDateString() : '—'],
   ]
+  const uploadedBy = file.uploader
+    ? file.uploader.display_name
+    : file.upload_source ? sourceLabel(file.upload_source) : 'Unknown (before accounts)'
+  if (enabled || file.uploader || file.upload_source) rows.push(['Uploaded by', uploadedBy])
   const reviewed = file.reviewed_at
     ? `Reviewed${file.reviewed_by && file.reviewed_by !== 'user' ? ` (${file.reviewed_by})` : ''}`
     : file.agent_reviewed_at ? 'Reviewed by AI, awaiting your confirmation' : 'Not reviewed yet'
@@ -53,7 +61,7 @@ function InfoList({ file, folderLabel, onMove }) {
       {rows.map(([k, v]) => (
         <React.Fragment key={k}>
           <dt className="text-muted-foreground">{k}</dt>
-          <dd className="font-mono">{v}</dd>
+          <dd className={k === 'Uploaded by' ? undefined : 'font-mono'}>{v}</dd>
         </React.Fragment>
       ))}
       <dt className="text-muted-foreground">Folder</dt>
@@ -88,6 +96,7 @@ export default function Player() {
     qc.setQueryData(['file', String(updated.id)], updated)
     qc.invalidateQueries({ queryKey: ['files'] })
     qc.invalidateQueries({ queryKey: ['counts'] })
+    qc.invalidateQueries({ queryKey: ['file', String(updated.id), 'history'] })
   }, [qc])
 
   useEffect(() => { setTab('tags') }, [id])
@@ -257,6 +266,7 @@ export default function Player() {
           <TabsTrigger value="tags">Tags</TabsTrigger>
           <TabsTrigger value="notes">Notes</TabsTrigger>
           <TabsTrigger value="info">Info</TabsTrigger>
+          <TabsTrigger value="history">History</TabsTrigger>
         </TabsList>
         {tab === 'tags' && <SaveIndicator state={saveState} />}
       </div>
@@ -280,6 +290,9 @@ export default function Player() {
       <TabsContent value="notes" className="min-h-0 flex-1 p-3"><NotesEditor file={file} onSaved={applyUpdate} /></TabsContent>
       <TabsContent value="info" className="min-h-0 flex-1">
         <ScrollArea className="h-full"><div className="p-3"><InfoList file={file} folderLabel={folderLabel} onMove={() => setMoving(true)} /></div></ScrollArea>
+      </TabsContent>
+      <TabsContent value="history" className="min-h-0 flex-1">
+        <ScrollArea className="h-full"><HistoryPanel fileId={file.id} /></ScrollArea>
       </TabsContent>
     </Tabs>
   )

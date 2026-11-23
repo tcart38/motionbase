@@ -24,6 +24,8 @@ import { useFolders } from '@/hooks/useFolders.js'
 import { useBulkActions } from '@/hooks/useBulkActions.js'
 import { useFileCounts } from '@/hooks/useInboxCount.js'
 import { folderPath } from '@/lib/folders.js'
+import { uploaderLabel } from '@/lib/people.js'
+import { useAuth } from '@/context/AuthContext.jsx'
 
 const PAGE_SIZE = 50
 const FILTERS = [
@@ -48,6 +50,7 @@ const SHORTCUTS = [
 export default function Inbox() {
   const qc = useQueryClient()
   const bulk = useBulkActions()
+  const { enabled: loginOn } = useAuth()
   const { groups } = useTaxonomy()
   const { data: folderData } = useFolders()
   const { data: counts } = useFileCounts()
@@ -228,6 +231,7 @@ export default function Inbox() {
                   <h2 className="truncate text-sm font-medium" title={current.filename}>{current.filename}</h2>
                   <p className="text-xs text-muted-foreground">
                     {idx + 1} of {files.length}{query.hasNextPage ? '+' : ''}
+                    {(loginOn || current.uploader) && uploaderLabel(current) && <> · added by {uploaderLabel(current)}</>}
                     {current.agent_reviewed_at && <> · <RiSparklingLine className="-mt-0.5 inline size-3 text-primary" /> reviewed by AI</>}
                   </p>
                 </div>

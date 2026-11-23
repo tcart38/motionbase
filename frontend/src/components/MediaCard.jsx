@@ -12,6 +12,9 @@ import {
 } from '@/components/ui/context-menu.jsx'
 import { cn } from '@/lib/utils.js'
 import { thumbnailUrl, streamUrl } from '@/api/client.js'
+import { useAuth } from '@/context/AuthContext.jsx'
+import UserAvatar from '@/components/UserAvatar.jsx'
+import { uploaderLabel } from '@/lib/people.js'
 
 export function formatDuration(secs) {
   if (!secs) return null
@@ -32,6 +35,7 @@ function MediaCard({
   file, selectMode, selected, onSelect, onFavoriteToggle, onPlay, onDragStartFiles, onMove, onMarkReviewed, onDelete,
 }) {
   const location = useLocation()
+  const { enabled: loginOn } = useAuth()
   const videoRef = useRef(null)
   const latestPctRef = useRef(0)
   const [hovering, setHovering] = useState(false)
@@ -182,6 +186,13 @@ function MediaCard({
 
         <div className="space-y-1.5 p-2.5">
           <p className="truncate text-xs font-medium" title={file.filename}>{file.filename}</p>
+          {(loginOn || file.uploader) && (
+            <p className="flex items-center gap-1 truncate text-[0.625rem] text-muted-foreground" data-testid="uploader"
+              title={file.uploader ? `Added by ${file.uploader.display_name}` : uploaderLabel(file) ?? 'Uploader unknown'}>
+              {file.uploader ? <UserAvatar name={file.uploader.display_name} size="sm" /> : null}
+              <span className="truncate">{uploaderLabel(file) ?? 'Unknown'}</span>
+            </p>
+          )}
           {(visibleTags.length > 0 || aiTagged) && (
             <div className="flex flex-wrap gap-1">
               {aiTagged && (

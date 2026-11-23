@@ -7,12 +7,15 @@ import { Input } from '@/components/ui/input.jsx'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select.jsx'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group.jsx'
 import { Toggle } from '@/components/ui/toggle.jsx'
+import { useAuth } from '@/context/AuthContext.jsx'
 
 export const SORT_OPTIONS = [
   { value: 'date_added', label: 'Date added' },
   { value: 'filename', label: 'Filename' },
   { value: 'duration', label: 'Duration' },
 ]
+
+export const UPLOADER_SORT = { value: 'uploader', label: 'Uploader' }
 
 export const GRID_SIZES = [
   { label: 'XS', cols: 'grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10' },
@@ -26,6 +29,9 @@ export default function LibraryToolbar({
   searchInput, onSearchInput, sort, order, onSort, onOrder, gridSize, onGridSize,
   selecting, onToggleSelect, onRandom, canRandom,
 }) {
+  const { enabled } = useAuth()
+  // Sorting by uploader only means something once accounts are on (or a file is already sorted that way via a link).
+  const sortOptions = enabled || sort === 'uploader' ? [...SORT_OPTIONS, UPLOADER_SORT] : SORT_OPTIONS
   return (
     <div className="flex flex-wrap items-center gap-2">
       <div className="relative min-w-40 basis-full flex-1 sm:max-w-sm sm:basis-0">
@@ -50,10 +56,10 @@ export default function LibraryToolbar({
         )}
       </div>
 
-      <Select items={SORT_OPTIONS} value={sort} onValueChange={onSort}>
+      <Select items={sortOptions} value={sort} onValueChange={onSort}>
         <SelectTrigger size="default" className="h-8 w-36 max-sm:flex-1" aria-label="Sort by"><SelectValue /></SelectTrigger>
         <SelectContent>
-          {SORT_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+          {sortOptions.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
         </SelectContent>
       </Select>
       <Button

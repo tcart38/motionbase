@@ -6,9 +6,12 @@ import { Spinner } from '@/components/ui/spinner.jsx'
 import { cn } from '@/lib/utils.js'
 import { thumbnailUrl } from '@/api/client.js'
 import { formatDuration } from '@/components/MediaCard.jsx'
+import { useAuth } from '@/context/AuthContext.jsx'
+import { uploaderLabel } from '@/lib/people.js'
 
 /** The triage queue. The current file is highlighted and kept in view. */
 export default function QueueList({ files, currentId, onSelect, loading, hasMore, loadingMore, onLoadMore }) {
+  const { enabled: loginOn } = useAuth()
   const currentRef = useRef(null)
   const sentinel = useRef(null)
 
@@ -67,6 +70,9 @@ export default function QueueList({ files, currentId, onSelect, loading, hasMore
                     <span className="text-[0.625rem] text-muted-foreground">
                       {f.tags?.some((t) => t.category_name !== 'Aspect Ratio') ? 'Tagged' : 'Untouched'}
                     </span>
+                  )}
+                  {(loginOn || f.uploader) && uploaderLabel(f) && (
+                    <span className="truncate text-[0.625rem] text-muted-foreground">· {uploaderLabel(f)}</span>
                   )}
                 </span>
               </span>

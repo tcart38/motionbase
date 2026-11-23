@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { RiFilmLine, RiFolderOpenLine, RiSearchLine, RiAddCircleLine } from '@remixicon/react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button.jsx'
@@ -20,7 +20,8 @@ import LibraryToolbar, { GRID_SIZES } from '@/components/library/LibraryToolbar.
 import FilterBar from '@/components/library/FilterBar.jsx'
 import BulkBar from '@/components/library/BulkBar.jsx'
 import PlayerDialog from '@/components/library/PlayerDialog.jsx'
-import { getFiles, patchFile } from '@/api/client.js'
+import { getFiles, getUsers, patchFile } from '@/api/client.js'
+import { useAuth } from '@/context/AuthContext.jsx'
 import { useTaxonomy } from '@/hooks/useTaxonomy.js'
 import { useFolders } from '@/hooks/useFolders.js'
 import { useBulkActions } from '@/hooks/useBulkActions.js'
@@ -39,6 +40,7 @@ export default function Library() {
   const { data: folderData } = useFolders()
   const { data: counts } = useFileCounts()
   const bulk = useBulkActions()
+  const { enabled: loginOn, isAdmin, user: me } = useAuth()
 
   // Filters live in the URL: shareable, and they survive opening a video and coming back.
   const selectedTags = useMemo(
@@ -51,6 +53,7 @@ export default function Library() {
   const favorites = searchParams.get('favorites') === '1'
   const untagged = searchParams.get('untagged') === '1'
   const ai = searchParams.get('source') === 'agent'
+  const uploader = searchParams.get('uploader') || ''
   const folder = searchParams.get('folder') || ''
   const subfolders = searchParams.get('subfolders') !== '0'
   const gridSize = (() => {
@@ -87,9 +90,10 @@ export default function Library() {
     favorites: favorites ? '1' : undefined,
     untagged: untagged ? '1' : undefined,
     source: ai ? 'agent' : undefined,
+    uploader: uploader || undefined,
     folder: folder || undefined,
     subfolders: folder && folder !== 'none' ? (subfolders ? '1' : '0') : undefined,
-  }), [selectedTags, sort, order, search, favorites, untagged, ai, folder, subfolders])
+  }), [selectedTags, sort, order, search, favorites, untagged, ai, uploader, folder, subfolders])
 
   const query = useInfiniteQuery({
     queryKey: ['files', 'library', queryParams],
@@ -102,6 +106,15 @@ export default function Library() {
     return (query.data?.pages ?? []).flatMap((p) => p.files).filter((f) => !seen.has(f.id) && seen.add(f.id))
   }, [query.data])
   const total = query.data?.pages[0]?.total ?? 0
+
+  // People to offer in "Uploaded by". Only admins may list users; everyone else gets themselves plus
+  // whoever appears on files loaded so far.
+  const { data: userData } = useQuery({ queryKey: ['users'], queryFn: getUsers, enabled: loginOn && isAdmin })
+  const seenUploaders = useRef(new Map())
+  for (const f of files) if (f.uploader) seenUploaders.current.set(f.uploader.id, f.uploader)
+  if (me) seenUploaders.current.set(me.id, me)
+  const uploaderOptions = (loginOn && isAdmin && userData ? userData.users : [...seenUploaders.current.values()])
+    .slice().sort((a, b) => String(a.display_name).localeCompare(String(b.display_name)))
   const filesRef = useRef(files)
   filesRef.current = files
 
@@ -217,8 +230,8 @@ export default function Library() {
       if (flag === 'untagged') p.delete('tags')
     }
   })
-  const clearFilters = () => updateParams((p) => { ['tags', 'favorites', 'untagged', 'source', 'search'].forEach((k) => p.delete(k)) })
-  const filtersActive = selectedTags.size > 0 || favorites || untagged || ai || !!search
+  const clearFilters = () => updateParams((p) => { ['tags', 'favorites', 'untagged', 'source', 'search', 'uploader'].forEach((k) => p.delete(k)) })
+  const filtersActive = selectedTags.size > 0 || favorites || untagged || ai || !!search || !!uploader
 
   const folders = folderData?.folders ?? []
   const folderParts = folder && folder !== 'none' ? folderPath(folders, Number(folder)) : []
@@ -268,7 +281,7 @@ export default function Library() {
           onSearchInput={setSearchInput}
           sort={sort}
           order={order}
-          onSort={(v) => updateParams((p) => p.set('sort', v))}
+          onSort={(v) => updateParams((p) => { p.set('sort', v); if (v === 'uploader') p.set('order', 'asc') })}
           onOrder={() => updateParams((p) => p.set('order', order === 'desc' ? 'asc' : 'desc'))}
           gridSize={gridSize}
           onGridSize={(i) => { try { localStorage.setItem('gridSize', String(i)) } catch { /* ignore */ } updateParams((p) => p.set('grid', String(i))) }}
@@ -281,10 +294,12 @@ export default function Library() {
         <FilterBar
           groups={groups}
           tags={tags}
-          filters={{ tags: selectedTags, favorites, untagged, ai }}
+          filters={{ tags: selectedTags, favorites, untagged, ai, uploader }}
           onToggleTag={toggleTag}
           onToggleFlag={toggleFlag}
           onClear={clearFilters}
+          uploaderOptions={uploaderOptions}
+          onSetUploader={loginOn ? (v) => updateParams((p) => (v ? p.set('uploader', v) : p.delete('uploader'))) : undefined}
         />
       </div>
 
