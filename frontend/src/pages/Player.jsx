@@ -3,10 +3,11 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   RiArrowLeftLine, RiArrowRightLine, RiCheckLine, RiCloseLine, RiDownloadLine, RiImageLine, RiPencilLine,
-  RiStarFill, RiStarLine, RiCheckDoubleLine, RiFolderLine, RiSparklingLine,
+  RiStarFill, RiStarLine, RiCheckDoubleLine, RiFolderLine, RiFolderOpenLine, RiCloseLine, RiSparklingLine,
 } from '@remixicon/react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button.jsx'
+import { Kbd } from '@/components/ui/kbd.jsx'
 import { Input } from '@/components/ui/input.jsx'
 import { Badge } from '@/components/ui/badge.jsx'
 import { Skeleton } from '@/components/ui/skeleton.jsx'
@@ -90,6 +91,15 @@ export default function Player() {
   }, [qc])
 
   useEffect(() => { setTab('tags') }, [id])
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== 'M' || !e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return
+      if (e.target instanceof HTMLElement && e.target.closest('input, textarea, select, [contenteditable=true], [role=dialog]')) return
+      e.preventDefault(); setMoving(true)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [])
 
   const goNext = useCallback(async () => {
     setNextLoading(true)
@@ -225,6 +235,18 @@ export default function Player() {
           <TabsTrigger value="info">Info</TabsTrigger>
         </TabsList>
         {tab === 'tags' && <SaveIndicator state={saveState} />}
+      </div>
+      <div className="flex items-center gap-2 border-b px-3 py-2">
+        <Button variant="outline" size="sm" className="min-w-0 flex-1 justify-start" onClick={() => setMoving(true)} aria-label={`Folder: ${folderLabel}. Change folder`}>
+          <RiFolderOpenLine data-icon="inline-start" />
+          <span className="truncate">{folderLabel}</span>
+          <Kbd className="ml-auto">Shift+M</Kbd>
+        </Button>
+        {file.folder_id != null && (
+          <Button variant="ghost" size="icon-sm" aria-label="Remove from folder" title="Remove from folder (move to Unfiled)" onClick={() => bulk.moveToFolder([file], null, 'Unfiled')}>
+            <RiCloseLine />
+          </Button>
+        )}
       </div>
       <TabsContent value="tags" className="min-h-0 flex-1">
         <ScrollArea className="h-full">

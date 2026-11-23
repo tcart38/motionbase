@@ -53,6 +53,7 @@ export const SHORTCUT_SECTIONS = [
       { keys: ['m'], label: 'Mute' },
       { keys: ['f'], label: 'Fullscreen' },
       { keys: ['l'], label: 'Loop' },
+      { keys: ['shift', 'm'], label: 'Choose folder for this file' },
     ],
   },
 ]

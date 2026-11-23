@@ -140,6 +140,7 @@ export default function VideoPlayer({ file, className, autoPlay = true, reserved
         '[': () => stepRate(-1), ']': () => stepRate(1),
       }
       if (reservedKeys?.includes(e.key.toLowerCase())) return
+      if (e.key === 'M') return // Shift+M opens the folder picker on the Player page
       const fn = handlers[e.key] || handlers[e.key.toLowerCase?.()]
       if (fn) { e.preventDefault(); fn() }
     }
