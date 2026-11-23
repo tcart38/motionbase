@@ -1,6 +1,6 @@
 # MotionBase Agent API
 
-A token-authenticated HTTP API that lets an AI agent (Claude, a script, anything that can send HTTP) triage a MotionBase library: look at what is waiting, view frames of each clip, then tag, file, annotate and mark items reviewed. Machine-readable description: [`openapi.json`](./openapi.json), also served at `GET /api/agent/v1/openapi.json`.
+A token-authenticated HTTP API that lets an AI agent (Claude, ChatGPT, Gemini, Cursor, a script, anything that can send HTTP) triage a MotionBase library: look at what is waiting, view frames of each clip, then tag, file, annotate and mark items reviewed. Machine-readable description: [`openapi.json`](./openapi.json), also served at `GET /api/agent/v1/openapi.json`.
 
 Base URL: `http://<host>:<port>/api/agent/v1`
 

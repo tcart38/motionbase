@@ -80,13 +80,28 @@ curl -H "$AUTH" -H 'Content-Type: application/json' -X POST $MB/files/bulk -d '{
 }'
 # Send the same request without "dry_run" to apply it. The response has an activity_id you can revert in this app.`, [api])
 
-  const cfgCode = useMemo(() => `# Claude Code, with this repo cloned on your computer (cd mcp && npm install once):
-claude mcp add motionbase \\
-  --env MOTIONBASE_URL=${base} \\
-  --env MOTIONBASE_TOKEN=mb_xxxxxxxx \\
-  -- node /path/to/motionbase/mcp/index.js`, [base])
+  const mcpUrl = `${base}/mcp`
 
-  const cfgDesktop = useMemo(() => JSON.stringify({
+  const cfgUrlCli = useMemo(() => `# Claude Code
+claude mcp add --transport http motionbase ${mcpUrl} \\
+  --header "Authorization: Bearer mb_xxxxxxxx"`, [mcpUrl])
+
+  const cfgUrlJson = useMemo(() => JSON.stringify({
+    mcpServers: {
+      motionbase: { url: mcpUrl, headers: { Authorization: 'Bearer mb_xxxxxxxx' } },
+    },
+  }, null, 2), [mcpUrl])
+
+  const cfgBridge = useMemo(() => JSON.stringify({
+    mcpServers: {
+      motionbase: {
+        command: 'npx',
+        args: ['-y', 'mcp-remote', mcpUrl, '--allow-http', '--header', 'Authorization: Bearer mb_xxxxxxxx'],
+      },
+    },
+  }, null, 2), [mcpUrl])
+
+  const cfgStdio = useMemo(() => JSON.stringify({
     mcpServers: {
       motionbase: {
         command: 'node',
@@ -96,21 +111,13 @@ claude mcp add motionbase \\
     },
   }, null, 2), [base])
 
-  const cfgDocker = useMemo(() => `# No clone needed: the MCP server is inside the MotionBase Docker image.
-# Claude Code, MotionBase's container is named "motionbase" on the same machine:
-claude mcp add motionbase -- docker exec -i -e MOTIONBASE_TOKEN=mb_xxxxxxxx motionbase node /app/mcp/index.js
+  const cfgDocker = useMemo(() => `# No clone needed: the stdio server is inside the MotionBase Docker image.
+# MotionBase's container is named "motionbase" on the same machine:
+docker exec -i -e MOTIONBASE_TOKEN=mb_xxxxxxxx motionbase node /app/mcp/index.js
 
 # MotionBase on another machine (VM), over SSH:
-claude mcp add motionbase -- ssh user@vm-host docker exec -i -e MOTIONBASE_TOKEN=mb_xxxxxxxx motionbase node /app/mcp/index.js`, [])
-
-  const cfgDockerDesktop = useMemo(() => JSON.stringify({
-    mcpServers: {
-      motionbase: {
-        command: 'ssh',
-        args: ['user@vm-host', 'docker', 'exec', '-i', '-e', 'MOTIONBASE_TOKEN=mb_xxxxxxxx', 'motionbase', 'node', '/app/mcp/index.js'],
-      },
-    },
-  }, null, 2), [])
+ssh user@vm-host docker exec -i -e MOTIONBASE_TOKEN=mb_xxxxxxxx motionbase node /app/mcp/index.js
+# (use either as the "command" of a stdio MCP server in your AI tool)`, [])
 
   const prompt = useMemo(() => `You triage a MotionBase media library through its Agent API.
 Base URL: ${api}   Auth: Authorization: Bearer $MOTIONBASE_TOKEN
@@ -147,14 +154,14 @@ When finished, report counts: reviewed, left pending (with reasons), tags create
       <CardHeader>
         <CardTitle className="flex items-center gap-2"><RiBookOpenLine className="size-4" /> How to use the Agent API</CardTitle>
         <CardDescription>
-          Lets Claude (or any script) look at your videos and set categories, tags, notes and folders for you. Full reference: <code>docs/AGENT_API.md</code> in the repo, or <a className="underline" href="/api/agent/v1/openapi.json" target="_blank" rel="noreferrer">openapi.json</a>.
+          Lets an AI agent (Claude, ChatGPT, Gemini, Cursor, or any script) look at your videos and set categories, tags, notes and folders for you. Full reference: <code>docs/AGENT_API.md</code> in the repo, or <a className="underline" href="/api/agent/v1/openapi.json" target="_blank" rel="noreferrer">openapi.json</a>.
         </CardDescription>
       </CardHeader>
       <CardContent>
         <Tabs value={tab} onValueChange={setTab} className="gap-3">
           <TabsList className="flex-wrap">
             <TabsTrigger value="overview">What it can do</TabsTrigger>
-            <TabsTrigger value="connect">Connect Claude (MCP)</TabsTrigger>
+            <TabsTrigger value="connect">Connect an AI (MCP)</TabsTrigger>
             <TabsTrigger value="start">Quick start (curl)</TabsTrigger>
             <TabsTrigger value="endpoints">Endpoints</TabsTrigger>
             <TabsTrigger value="prompt">Prompt</TabsTrigger>
@@ -179,16 +186,27 @@ When finished, report counts: reviewed, left pending (with reasons), tags create
 
           <TabsContent value="connect" className="grid gap-3">
             <p className="text-xs text-muted-foreground">
-              The easiest way to let Claude work on your library. MotionBase includes an MCP server that gives Claude native tools (claim videos, look at a contact sheet, apply tags, create folders…), so it can see each video without any curl. Create a token above, replace <code>mb_xxxxxxxx</code>, restart Claude, then ask it to "triage my MotionBase inbox".
+              Works with any AI tool or agent that supports MCP (Model Context Protocol): Claude, Cursor, VS Code / Copilot, Windsurf, Gemini CLI, Codex and others. MCP gives the AI native tools (claim videos, look at a contact sheet, apply tags, create folders…) so it can see each video without hand-written HTTP calls. Create a token above and replace <code>mb_xxxxxxxx</code>, then ask the AI to triage your MotionBase inbox. Tools that cannot use MCP can use the HTTP API instead (Quick start tab).
             </p>
-            <p className="text-xs font-medium">Claude Code</p>
-            <Code label="Copy command">{cfgCode}</Code>
-            <p className="text-xs font-medium">Claude Desktop (claude_desktop_config.json)</p>
-            <Code label="Copy config">{cfgDesktop}</Code>
-            <p className="text-xs font-medium">Without cloning the repo (runs inside the Docker container)</p>
+            <div className="rounded-lg border p-3 text-xs text-muted-foreground">
+              <p className="mb-1 font-medium text-foreground">Two kinds of MCP server</p>
+              <p><span className="font-medium text-foreground">URL (remote, recommended):</span> MotionBase itself serves MCP at <code>{mcpUrl}</code>. Your AI tool connects to that address with your token, from any computer that can reach this server. Nothing to install.</p>
+              <p className="mt-1"><span className="font-medium text-foreground">Local (stdio):</span> a small program your AI tool launches on your computer and talks to over standard input/output; it then calls MotionBase over HTTP. Use it for tools that only support local servers, or when you would rather not use a URL.</p>
+            </div>
+
+            <p className="text-xs font-medium">Option 1: URL (recommended)</p>
+            <p className="text-xs text-muted-foreground">Any client that supports remote ("streamable HTTP") MCP servers with headers, such as Cursor, VS Code, Windsurf and Gemini CLI, takes this config (the file and key names vary slightly by tool):</p>
+            <Code label="Copy config">{cfgUrlJson}</Code>
+            <Code label="Copy command">{cfgUrlCli}</Code>
+            <p className="text-xs text-muted-foreground">Clients that only run local servers (for example Claude Desktop) can reach the URL through the <code>mcp-remote</code> bridge (needs Node):</p>
+            <Code label="Copy config">{cfgBridge}</Code>
+            <p className="text-xs text-muted-foreground">Web-based AI apps (ChatGPT, claude.ai) need a public HTTPS address. MotionBase has no login of its own, so only expose it that way behind a reverse proxy you trust.</p>
+
+            <p className="text-xs font-medium">Option 2: local program (stdio)</p>
+            <Code label="Copy config">{cfgStdio}</Code>
+            <p className="text-xs text-muted-foreground">Needs this repo cloned (<code>cd mcp && npm install</code>) and Node 20+. Or run the copy inside the MotionBase container, with no clone:</p>
             <Code label="Copy commands">{cfgDocker}</Code>
-            <Code label="Copy config">{cfgDockerDesktop}</Code>
-            <p className="text-xs text-muted-foreground">Needs Node 20+ for the first two options. Tools: status, taxonomy, list/get files, view contact sheet and frames, claim/release, update files (with dry run), create categories/tags/folders, recent activity. Same safety rules as the API: it cannot delete anything.</p>
+            <p className="text-xs text-muted-foreground">Tools: status, taxonomy, list/get files, view contact sheet and frames, claim/release, update files (with dry run), create categories/tags/folders, recent activity. Same safety rules as the API: it cannot delete anything.</p>
           </TabsContent>
 
           <TabsContent value="start" className="grid gap-3">
@@ -211,7 +229,7 @@ When finished, report counts: reviewed, left pending (with reasons), tags create
 
           <TabsContent value="prompt" className="grid gap-3">
             <p className="text-xs text-muted-foreground">
-              Paste this into Claude after connecting it (the MCP tools above, or Claude Code with curl). If you use curl, put the token in an environment variable named <code>MOTIONBASE_TOKEN</code>, never in the prompt. Start with a small batch and check the results before letting it run on everything.
+              Paste this into your AI tool after connecting it (via MCP above, or any agent that can run curl and view images). If you use curl, put the token in an environment variable named <code>MOTIONBASE_TOKEN</code>, never in the prompt. Start with a small batch and check the results before letting it run on everything.
             </p>
             <Code label="Copy prompt">{prompt}</Code>
           </TabsContent>

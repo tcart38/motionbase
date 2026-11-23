@@ -27,7 +27,7 @@ COPY backend/src ./src
 WORKDIR /app/mcp
 COPY mcp/package.json mcp/package-lock.json* ./
 RUN npm ci --omit=dev
-COPY mcp/index.js mcp/src.js ./
+COPY mcp/index.js mcp/src.js mcp/http.js ./
 WORKDIR /app
 
 # Copy built frontend into backend's public dir

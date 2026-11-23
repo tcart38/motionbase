@@ -1,6 +1,6 @@
 # MotionBase MCP server
 
-`mcp/` is a small [Model Context Protocol](https://modelcontextprotocol.io) server (stdio) that wraps the [Agent API](./AGENT_API.md), so Claude gets native tools instead of hand-written curl calls, and sees video frames as images.
+MotionBase speaks [MCP (Model Context Protocol)](https://modelcontextprotocol.io), so any MCP-capable AI tool or agent (Claude, Cursor, VS Code / Copilot, Windsurf, Gemini CLI, Codex, and others) gets native tools instead of hand-written HTTP calls, and sees video frames as images. It wraps the [Agent API](./AGENT_API.md) and has the same limits: it cannot delete or rename anything.
 
 ## Tools
 
@@ -16,23 +16,49 @@
 | `motionbase_create` | Create a category, tag or folder (idempotent) |
 | `motionbase_recent_activity` | What agents changed (revert in MotionBase) |
 
-It has the same limits as the HTTP API: it cannot delete or rename anything.
+## Two ways to connect
 
-## Setup
+| | **URL (remote, streamable HTTP)** — recommended | **Local program (stdio)** |
+|---|---|---|
+| Where it runs | Inside MotionBase, at `http://HOST:PORT/mcp` | On the computer running your AI tool (the tool launches it) |
+| Install | Nothing | Node 20+ and the `mcp/` folder (or run the copy in the Docker image over `docker exec` / SSH) |
+| Auth | `Authorization: Bearer mb_...` header | `MOTIONBASE_TOKEN` environment variable |
+| Works from | Any machine that can reach the server | The machine that runs the program (it calls MotionBase over HTTP) |
+| Supported by | Remote-capable clients (Claude Code, Cursor, VS Code, Windsurf, Gemini CLI, ...) | Every MCP client, including local-only ones |
 
-1. In MotionBase: Settings > Agent API > create a token (`mb_...`).
-2. Pick one:
+Both use the same tools and the same tokens (Settings > Agent API > create a token, shown once).
 
-**Clone the repo** (Node 20+): `cd mcp && npm install`, then
+### URL (recommended)
 
-```bash
-claude mcp add motionbase \
-  --env MOTIONBASE_URL=http://HOST:3001 \
-  --env MOTIONBASE_TOKEN=mb_xxxxxxxx \
-  -- node /path/to/motionbase/mcp/index.js
+Generic config for clients that support remote MCP servers with headers (key and file names vary slightly by tool, e.g. `~/.cursor/mcp.json`, `.vscode/mcp.json`):
+
+```json
+{ "mcpServers": { "motionbase": {
+  "url": "http://HOST:3001/mcp",
+  "headers": { "Authorization": "Bearer mb_xxxxxxxx" } } } }
 ```
 
-Claude Desktop (`claude_desktop_config.json`):
+Claude Code:
+
+```bash
+claude mcp add --transport http motionbase http://HOST:3001/mcp --header "Authorization: Bearer mb_xxxxxxxx"
+```
+
+Clients that only launch local servers (e.g. Claude Desktop) can use the `mcp-remote` bridge (Node required):
+
+```json
+{ "mcpServers": { "motionbase": {
+  "command": "npx",
+  "args": ["-y", "mcp-remote", "http://HOST:3001/mcp", "--allow-http", "--header", "Authorization: Bearer mb_xxxxxxxx"] } } }
+```
+
+Web-based AI apps (ChatGPT, claude.ai) need a public HTTPS address. MotionBase has no login of its own beyond the agent tokens, so only expose it that way behind a reverse proxy you trust.
+
+The endpoint is stateless (`POST /mcp`; `GET` and `DELETE` return 405). Each tool call is made with the caller's own token, so the activity log shows which token did what.
+
+### Local program (stdio)
+
+Clone the repo, `cd mcp && npm install`, then point your client at it:
 
 ```json
 { "mcpServers": { "motionbase": {
@@ -40,14 +66,15 @@ Claude Desktop (`claude_desktop_config.json`):
   "env": { "MOTIONBASE_URL": "http://HOST:3001", "MOTIONBASE_TOKEN": "mb_xxxxxxxx" } } } }
 ```
 
-**No clone, via Docker** (the MCP server ships in the image at `/app/mcp`; inside the container the URL is `http://localhost:3001`, so only the token is needed):
+No clone: the same server ships in the Docker image at `/app/mcp`. Inside the container the URL is `http://localhost:3001`, so only the token is needed. Use as the client's stdio `command`:
 
 ```bash
-claude mcp add motionbase -- docker exec -i -e MOTIONBASE_TOKEN=mb_xxxxxxxx motionbase node /app/mcp/index.js
-# MotionBase on another machine:
-claude mcp add motionbase -- ssh user@vm-host docker exec -i -e MOTIONBASE_TOKEN=mb_xxxxxxxx motionbase node /app/mcp/index.js
+docker exec -i -e MOTIONBASE_TOKEN=mb_xxxxxxxx motionbase node /app/mcp/index.js
+ssh user@vm-host docker exec -i -e MOTIONBASE_TOKEN=mb_xxxxxxxx motionbase node /app/mcp/index.js   # MotionBase on another machine
 ```
 
-3. Restart Claude and ask: "Triage my MotionBase inbox: read the taxonomy, then work through pending videos in batches of 8, dry-running each batch first."
-
 Environment: `MOTIONBASE_URL` (default `http://localhost:3001`) and `MOTIONBASE_TOKEN` (required). Tests: `cd mcp && npm test`.
+
+## Try it
+
+Ask your AI tool: "Triage my MotionBase inbox: read the taxonomy, then work through pending videos in batches of 8, dry-running each batch first."

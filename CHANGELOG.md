@@ -7,8 +7,8 @@ All notable changes to MotionBase are documented here. The format follows [Keep 
 ### Added
 - Delete with Undo: videos move to a Trash (soft delete, migration 3) from the Library (card menu and bulk bar) and the Player (button or Del key), with an Undo toast. The Trash page restores or permanently deletes (which also removes the file from the media folder, with confirmation). Trashed files are hidden from the Library, folder counts and the agent API, and the scanner won't re-import them.
 - URL import: source details (author, link, platform, post date when the site provides it, and the description/caption) are saved into the file's Notes on download, without overwriting existing notes. For LinkedIn posts, yt-dlp leaves the author and date empty (the page now uses `VideoObject.creator`, which its extractor ignores), so MotionBase reads them, plus the full caption, from the post page itself, falling back to parsing the page title.
-- MCP server (`mcp/`, also in the Docker image at `/app/mcp`): native Claude tools over the Agent API, including contact sheets and frames as images. Setup in `docs/MCP.md` and in the Settings > Agent API guide (Connect Claude tab).
-- Settings > Agent API: an in-app guide with what the API can and cannot do, copy-paste curl quick start, endpoint list and a ready-made prompt for Claude.
+- MCP for any AI tool: MotionBase serves MCP over streamable HTTP at `/mcp` (same bearer tokens), plus a local stdio server (`mcp/`, also in the image at `/app/mcp`). Native tools over the Agent API, including contact sheets and frames as images. Setup in `docs/MCP.md` and in the Settings > Agent API guide (Connect an AI tab).
+- Settings > Agent API: an in-app guide with what the API can and cannot do, copy-paste curl quick start, endpoint list and a ready-made agent prompt.
 - Player: Page Up / Page Down step one frame back / forward; a folder button above the side-panel tabs (Shift+M).
 
 ### Changed

@@ -15,6 +15,7 @@ import tokensRouter from './routes/tokens.js'
 import activityRouter from './routes/activity.js'
 import cookiesRouter from './routes/cookies.js'
 import agentRouter from './routes/agent.js'
+import mcpRouter from './routes/mcp.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -39,6 +40,7 @@ export function createApp({ serveFrontend = config.isProd } = {}) {
   app.use('/api/tokens', tokensRouter)
   app.use('/api/activity', activityRouter)
   app.use('/api/agent/v1', agentRouter)
+  app.use('/mcp', mcpRouter)
 
   // Serve built frontend in production (Docker)
   if (serveFrontend) {
