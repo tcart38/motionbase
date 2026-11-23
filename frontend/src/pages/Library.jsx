@@ -1,100 +1,46 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { useSearchParams, useNavigate } from 'react-router-dom'
-import { Search, X, ChevronDown, LayoutGrid, Star, CheckSquare, Square, Shuffle, Tag, ExternalLink } from 'lucide-react'
-import { getFiles, getCategories, getTags, patchFile } from '../api/client.js'
-import MediaCard from '../components/MediaCard.jsx'
-import VideoPlayer from '../components/VideoPlayer.jsx'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
+import { RiFilmLine, RiFolderOpenLine, RiSearchLine, RiAddCircleLine } from '@remixicon/react'
+import { toast } from 'sonner'
+import { Button } from '@/components/ui/button.jsx'
+import { Skeleton } from '@/components/ui/skeleton.jsx'
+import { Spinner } from '@/components/ui/spinner.jsx'
+import { Switch } from '@/components/ui/switch.jsx'
+import { Label } from '@/components/ui/label.jsx'
+import {
+  Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator,
+} from '@/components/ui/breadcrumb.jsx'
+import {
+  Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle,
+} from '@/components/ui/empty.jsx'
+import MediaCard from '@/components/MediaCard.jsx'
+import MoveToFolderDialog from '@/components/MoveToFolderDialog.jsx'
+import LibraryToolbar, { GRID_SIZES } from '@/components/library/LibraryToolbar.jsx'
+import FilterBar from '@/components/library/FilterBar.jsx'
+import BulkBar from '@/components/library/BulkBar.jsx'
+import PlayerDialog from '@/components/library/PlayerDialog.jsx'
+import { getFiles, patchFile } from '@/api/client.js'
+import { useTaxonomy } from '@/hooks/useTaxonomy.js'
+import { useFolders } from '@/hooks/useFolders.js'
+import { useBulkActions } from '@/hooks/useBulkActions.js'
+import { useFileCounts } from '@/hooks/useInboxCount.js'
+import { setDragFiles } from '@/lib/dnd.js'
+import { folderPath } from '@/lib/folders.js'
 
-const SORT_OPTIONS = [
-  { value: 'date_added', label: 'Date Added' },
-  { value: 'filename', label: 'Filename' },
-  { value: 'duration', label: 'Duration' },
-]
-
-// Grid size configs: [cols-sm, cols-md, cols-lg, cols-xl]
-const GRID_SIZES = [
-  { label: 'XS', cols: 'grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10' },
-  { label: 'S',  cols: 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-7' },
-  { label: 'M',  cols: 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5' },
-  { label: 'L',  cols: 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4' },
-  { label: 'XL', cols: 'grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3' },
-]
-
-function CategoryFilter({ cat, tags, selectedTags, onToggle }) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef(null)
-  const activeCount = tags.filter((t) => selectedTags.has(t.id)).length
-
-  // Close on outside click
-  useEffect(() => {
-    if (!open) return
-    const handler = (e) => { if (!ref.current?.contains(e.target)) setOpen(false) }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [open])
-
-  return (
-    <div ref={ref} className="relative">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm font-medium
-          transition-colors duration-150 select-none cursor-pointer
-          ${activeCount > 0
-            ? 'bg-brand border-brand text-white'
-            : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-white/[0.08] text-slate-600 dark:text-slate-300 hover:border-slate-300 dark:hover:border-white/[0.15]'
-          }`}
-      >
-        {cat.name}
-        {activeCount > 0 && (
-          <span className="bg-white/25 text-white text-xs rounded-full px-1.5 py-0 leading-4">
-            {activeCount}
-          </span>
-        )}
-        <ChevronDown
-          size={13}
-          className={`transition-transform duration-150 ${open ? 'rotate-180' : ''} ${activeCount > 0 ? 'text-white/70' : 'text-slate-400'}`}
-        />
-      </button>
-
-      {open && (
-        <div className="absolute top-full left-0 mt-1.5 z-20 card p-3 min-w-[160px] shadow-xl
-                        border border-slate-200 dark:border-white/[0.08]">
-          <div className="flex flex-wrap gap-1.5">
-            {tags.map((tag) => (
-              <button
-                key={tag.id}
-                onClick={() => onToggle(tag.id)}
-                className={`tag-btn ${selectedTags.has(tag.id) ? 'tag-btn-active' : ''}`}
-              >
-                {tag.name}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
+const PAGE_SIZE = 100
 const SCROLL_KEY = 'library:scrollTop'
 
 export default function Library() {
   const navigate = useNavigate()
-  const [data, setData] = useState({ files: [], total: 0 })
-  const [categories, setCategories] = useState([])
-  const [allTags, setAllTags] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [selectMode, setSelectMode] = useState(false)
-  const [selectedIds, setSelectedIds] = useState(new Set())
-  const scrollRef = useRef(null)
-  const scrollRestoredRef = useRef(false)
-  const [playingFile, setPlayingFile] = useState(null)
-  const [playerBoxWidth, setPlayerBoxWidth] = useState(null)
-
-  // Filters/view live in the URL so they survive navigating into a video and back
-  // (and are shareable/bookmarkable). The URL is the single source of truth.
+  const qc = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
-  const [searchInput, setSearchInput] = useState(() => searchParams.get('search') || '')
+  const { groups, tags } = useTaxonomy()
+  const { data: folderData } = useFolders()
+  const { data: counts } = useFileCounts()
+  const bulk = useBulkActions()
+
+  // Filters live in the URL: shareable, and they survive opening a video and coming back.
   const selectedTags = useMemo(
     () => new Set((searchParams.get('tags') || '').split(',').filter(Boolean).map(Number)),
     [searchParams]
@@ -104,12 +50,17 @@ export default function Library() {
   const search = searchParams.get('search') || ''
   const favorites = searchParams.get('favorites') === '1'
   const untagged = searchParams.get('untagged') === '1'
-  const gridSizeIdx = (() => {
-    const i = Number(searchParams.get('grid') ?? localStorage.getItem('gridSize'))
+  const ai = searchParams.get('source') === 'agent'
+  const folder = searchParams.get('folder') || ''
+  const subfolders = searchParams.get('subfolders') !== '0'
+  const gridSize = (() => {
+    let saved = null
+    try { saved = localStorage.getItem('gridSize') } catch { /* ignore */ }
+    const raw = searchParams.get('grid') ?? saved
+    const i = raw == null || raw === '' ? NaN : Number(raw)
     return Number.isInteger(i) && i >= 0 && i < GRID_SIZES.length ? i : 2
   })()
 
-  // Mutate the query string without stacking a history entry per change.
   const updateParams = useCallback((mutate) => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
@@ -118,355 +69,340 @@ export default function Library() {
     }, { replace: true })
   }, [setSearchParams])
 
+  const [searchInput, setSearchInput] = useState(search)
+  useEffect(() => { setSearchInput(search) }, [search])
   useEffect(() => {
-    Promise.all([getCategories(), getTags()]).then(([cats, tags]) => {
-      setCategories(cats)
-      setAllTags(tags)
+    const t = setTimeout(() => {
+      if (searchInput !== search) updateParams((p) => (searchInput ? p.set('search', searchInput) : p.delete('search')))
+    }, 300)
+    return () => clearTimeout(t)
+  }, [searchInput, search, updateParams])
+
+  const queryParams = useMemo(() => ({
+    view: 'all',
+    sort,
+    order,
+    tags: [...selectedTags].join(',') || undefined,
+    search: search || undefined,
+    favorites: favorites ? '1' : undefined,
+    untagged: untagged ? '1' : undefined,
+    source: ai ? 'agent' : undefined,
+    folder: folder || undefined,
+    subfolders: folder && folder !== 'none' ? (subfolders ? '1' : '0') : undefined,
+  }), [selectedTags, sort, order, search, favorites, untagged, ai, folder, subfolders])
+
+  const query = useInfiniteQuery({
+    queryKey: ['files', 'library', queryParams],
+    queryFn: ({ pageParam }) => getFiles({ ...queryParams, page: pageParam, limit: PAGE_SIZE }),
+    initialPageParam: 1,
+    getNextPageParam: (last, all) => (all.length * PAGE_SIZE < last.total ? all.length + 1 : undefined),
+  })
+  const files = useMemo(() => {
+    const seen = new Set()
+    return (query.data?.pages ?? []).flatMap((p) => p.files).filter((f) => !seen.has(f.id) && seen.add(f.id))
+  }, [query.data])
+  const total = query.data?.pages[0]?.total ?? 0
+  const filesRef = useRef(files)
+  filesRef.current = files
+
+  // ----- Scrolling: infinite load + restore position after coming back from the player
+  const scrollRef = useRef(null)
+  const sentinelRef = useRef(null)
+  const restoredRef = useRef(false)
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = query
+
+  useLayoutEffect(() => {
+    if (restoredRef.current || !query.data) return
+    restoredRef.current = true
+    const saved = sessionStorage.getItem(SCROLL_KEY)
+    if (saved && scrollRef.current) scrollRef.current.scrollTop = parseInt(saved, 10)
+  }, [query.data])
+
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (!el || !hasNextPage) return
+    const io = new IntersectionObserver(
+      (entries) => { if (entries[0].isIntersecting && !isFetchingNextPage) fetchNextPage() },
+      { root: scrollRef.current, rootMargin: '600px' }
+    )
+    io.observe(el)
+    return () => io.disconnect()
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage, files.length])
+
+  // ----- Selection (with shift-click range)
+  const [selecting, setSelecting] = useState(false)
+  const [selectedIds, setSelectedIds] = useState(() => new Set())
+  const anchorRef = useRef(null)
+  const selectMode = selecting || selectedIds.size > 0
+  const selectedFiles = useMemo(() => files.filter((f) => selectedIds.has(f.id)), [files, selectedIds])
+  const selectedRef = useRef(selectedIds)
+  selectedRef.current = selectedIds
+
+  // The selection does not survive a change of view.
+  const viewKey = JSON.stringify(queryParams)
+  useEffect(() => { setSelectedIds(new Set()); anchorRef.current = null }, [viewKey])
+
+  const handleSelect = useCallback((file, { shift }) => {
+    const list = filesRef.current
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      const anchor = anchorRef.current
+      if (shift && anchor != null) {
+        const a = list.findIndex((f) => f.id === anchor)
+        const b = list.findIndex((f) => f.id === file.id)
+        if (a !== -1 && b !== -1) {
+          const [lo, hi] = a < b ? [a, b] : [b, a]
+          for (let i = lo; i <= hi; i++) next.add(list[i].id)
+          return next
+        }
+      }
+      next.has(file.id) ? next.delete(file.id) : next.add(file.id)
+      anchorRef.current = file.id
+      return next
     })
   }, [])
 
-  const fetchFiles = useCallback(async () => {
-    setLoading(true)
-    try {
-      const result = await getFiles({
-        view: 'all',
-        sort,
-        order,
-        tags: [...selectedTags].join(',') || undefined,
-        search: search || undefined,
-        favorites: favorites ? '1' : undefined,
-        untagged: untagged ? '1' : undefined,
-        limit: 200,
-      })
-      setData(result)
-    } finally {
-      setLoading(false)
-    }
-  }, [selectedTags, sort, order, search, favorites, untagged])
+  const clearSelection = useCallback(() => { setSelectedIds(new Set()); setSelecting(false); anchorRef.current = null }, [])
 
-  useEffect(() => { fetchFiles() }, [fetchFiles])
-
-  // Restore the scroll position once, the first time files finish loading after
-  // mount — this is what makes navigating back from the player land you where
-  // you left off instead of at the top of the grid.
   useEffect(() => {
-    if (loading || scrollRestoredRef.current) return
-    scrollRestoredRef.current = true
-    const saved = sessionStorage.getItem(SCROLL_KEY)
-    if (saved && scrollRef.current) scrollRef.current.scrollTop = parseInt(saved, 10)
-  }, [loading])
+    const onKey = (e) => {
+      if (e.key !== 'Escape' || selectedRef.current.size === 0) return
+      if (e.defaultPrevented || document.querySelector('[role=dialog],[role=menu],[data-open]')) return
+      clearSelection()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [clearSelection])
 
-  const handleGridScroll = useCallback(() => {
-    if (scrollRef.current) sessionStorage.setItem(SCROLL_KEY, String(scrollRef.current.scrollTop))
+  // ----- Card actions
+  const [playing, setPlaying] = useState(null)
+  const [moveTarget, setMoveTarget] = useState(null) // array of file objects
+
+  const handleFavorite = useCallback(async (file) => {
+    try {
+      await patchFile(file.id, { is_favorite: file.is_favorite ? 0 : 1 })
+      qc.invalidateQueries({ queryKey: ['files'] })
+    } catch (err) { toast.error(err.message) }
+  }, [qc])
+
+  const handleDragStart = useCallback((e, file) => {
+    const sel = selectedRef.current
+    const list = sel.has(file.id) && sel.size > 1 ? filesRef.current.filter((f) => sel.has(f.id)) : [file]
+    setDragFiles(e, list)
   }, [])
 
-  useEffect(() => {
-    const t = setTimeout(() => {
-      updateParams((p) => { if (searchInput) p.set('search', searchInput); else p.delete('search') })
-    }, 300)
-    return () => clearTimeout(t)
-  }, [searchInput, updateParams])
+  const handleMoveOne = useCallback((file) => setMoveTarget([file]), [])
+  const handleMarkReviewedOne = useCallback((file) => bulk.markReviewed([file]), [bulk])
 
+  const handleRandom = () => {
+    if (!files.length) return
+    navigate(`/player/${files[Math.floor(Math.random() * files.length)].id}?${searchParams.toString()}`)
+  }
+
+  // ----- Filter handlers
   const toggleTag = (id) => updateParams((p) => {
     const set = new Set((p.get('tags') || '').split(',').filter(Boolean).map(Number))
     const adding = !set.has(id)
     set.has(id) ? set.delete(id) : set.add(id)
     set.size ? p.set('tags', [...set].join(',')) : p.delete('tags')
-    // "No Tags" and a specific tag are contradictory — picking a tag clears it.
-    if (adding) p.delete('untagged')
+    if (adding) p.delete('untagged') // "no tags" and a specific tag contradict each other
   })
+  const toggleFlag = (flag) => updateParams((p) => {
+    const key = flag === 'ai' ? 'source' : flag
+    const val = flag === 'ai' ? 'agent' : '1'
+    if (p.get(key) === val) p.delete(key)
+    else {
+      p.set(key, val)
+      if (flag === 'untagged') p.delete('tags')
+    }
+  })
+  const clearFilters = () => updateParams((p) => { ['tags', 'favorites', 'untagged', 'source', 'search'].forEach((k) => p.delete(k)) })
+  const filtersActive = selectedTags.size > 0 || favorites || untagged || ai || !!search
 
-  const clearFilters = () => updateParams((p) => { p.delete('tags'); p.delete('favorites'); p.delete('untagged') })
-
-  const handleRandom = () => {
-    if (data.files.length === 0) return
-    const file = data.files[Math.floor(Math.random() * data.files.length)]
-    navigate(`/player/${file.id}?${searchParams.toString()}`)
-  }
-
-  const toggleSelectMode = () => {
-    setSelectMode(v => !v)
-    setSelectedIds(new Set())
-  }
-
-  const handleFavoriteToggle = async (fileId, newVal) => {
-    const updated = await patchFile(fileId, { is_favorite: newVal ? 1 : 0 })
-    setData(prev => ({ ...prev, files: prev.files.map(f => f.id === fileId ? updated : f) }))
-  }
-
-  // Close the play modal on Escape
-  useEffect(() => {
-    if (!playingFile) return
-    const handler = (e) => { if (e.key === 'Escape') setPlayingFile(null) }
-    document.addEventListener('keydown', handler)
-    return () => document.removeEventListener('keydown', handler)
-  }, [playingFile])
-
-  const handleBulkTag = async (tagId, add) => {
-    const selectedFiles = data.files.filter(f => selectedIds.has(f.id))
-    const results = await Promise.all(
-      selectedFiles.map(f => {
-        const ids = new Set(f.tags.map(t => t.id))
-        add ? ids.add(tagId) : ids.delete(tagId)
-        return patchFile(f.id, { tag_ids: [...ids] })
-      })
-    )
-    setData(prev => ({
-      ...prev,
-      files: prev.files.map(f => results.find(r => r.id === f.id) || f),
-    }))
-  }
-
-  const gridCols = GRID_SIZES[gridSizeIdx].cols
+  const folders = folderData?.folders ?? []
+  const folderParts = folder && folder !== 'none' ? folderPath(folders, Number(folder)) : []
+  const folderName = folder === 'none' ? 'Unfiled' : folderParts[folderParts.length - 1]
+  const title = folderName || 'Library'
+  const gridCols = GRID_SIZES[gridSize].cols
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Toolbar */}
-      <div className="px-6 pt-5 pb-4 flex-shrink-0 space-y-3">
-        {/* Top row: title + search + sort + grid size */}
-        <div className="flex items-center gap-3">
-          <div className="flex-1 min-w-0">
-            <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100 leading-none">Library</h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{data.total} files</p>
-          </div>
-
-          <div className="relative flex-1 max-w-xs">
-            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-            <input
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="Search files…"
-              className="input pl-8 pr-7 text-sm py-1.5 w-full"
-            />
-            {searchInput && (
-              <button onClick={() => setSearchInput('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                <X size={12} />
-              </button>
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="shrink-0 space-y-3 px-4 pb-3 pt-4">
+        <div className="flex flex-wrap items-end gap-x-3 gap-y-1">
+          <div className="min-w-0">
+            {folder && (
+              <Breadcrumb>
+                <BreadcrumbList>
+                  <BreadcrumbItem><BreadcrumbLink render={<Link to="/library" />}>Library</BreadcrumbLink></BreadcrumbItem>
+                  {folder === 'none' ? (
+                    <><BreadcrumbSeparator /><BreadcrumbItem><BreadcrumbPage>Unfiled</BreadcrumbPage></BreadcrumbItem></>
+                  ) : folderParts.map((part, i) => (
+                    <React.Fragment key={i}>
+                      <BreadcrumbSeparator />
+                      <BreadcrumbItem><BreadcrumbPage>{part}</BreadcrumbPage></BreadcrumbItem>
+                    </React.Fragment>
+                  ))}
+                </BreadcrumbList>
+              </Breadcrumb>
             )}
+            <h1 className="text-lg font-semibold leading-tight tracking-tight">{title}</h1>
           </div>
-
-          {/* Sort */}
-          <select
-            value={sort}
-            onChange={(e) => updateParams((p) => p.set('sort', e.target.value))}
-            className="input w-auto text-xs py-1.5"
-          >
-            {SORT_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-          <button
-            onClick={() => updateParams((p) => p.set('order', order === 'desc' ? 'asc' : 'desc'))}
-            className="btn-ghost text-xs px-2"
-            title={order === 'desc' ? 'Newest first' : 'Oldest first'}
-          >
-            {order === 'desc' ? '↓' : '↑'}
-          </button>
-
-          <button
-            onClick={toggleSelectMode}
-            className={`btn-ghost text-xs px-2.5 flex items-center gap-1 ${selectMode ? 'bg-brand/10 text-brand' : ''}`}
-          >
-            {selectMode ? <CheckSquare size={13} /> : <Square size={13} />}
-            Select
-          </button>
-
-          <button
-            onClick={handleRandom}
-            disabled={data.files.length === 0}
-            className="btn-ghost text-xs px-2.5 flex items-center gap-1 disabled:opacity-40"
-            title="Play a random file from the current view"
-          >
-            <Shuffle size={13} />
-            Random
-          </button>
-
-          {/* Grid size */}
-          <div className="flex items-center gap-1 border border-slate-200 dark:border-white/[0.08] rounded-lg p-0.5">
-            <LayoutGrid size={13} className="text-slate-400 ml-1.5" />
-            {GRID_SIZES.map((s, i) => (
-              <button
-                key={s.label}
-                onClick={() => { localStorage.setItem('gridSize', String(i)); updateParams((p) => p.set('grid', String(i))) }}
-                className={`px-2 py-0.5 rounded-md text-xs font-medium transition-colors cursor-pointer
-                  ${gridSizeIdx === i
-                    ? 'bg-brand text-white'
-                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'}`}
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Filter row: one pill per category */}
-        {categories.length > 0 && (
-          <div className="flex items-center gap-2 flex-wrap">
-            {categories.map((cat) => {
-              const catTags = allTags.filter((t) => t.category_id === cat.id)
-              if (!catTags.length) return null
-              return (
-                <CategoryFilter
-                  key={cat.id}
-                  cat={cat}
-                  tags={catTags}
-                  selectedTags={selectedTags}
-                  onToggle={toggleTag}
-                />
-              )
-            })}
-
-            <button
-              onClick={() => updateParams((p) => favorites ? p.delete('favorites') : p.set('favorites', '1'))}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors ${
-                favorites
-                  ? 'bg-yellow-400 border-yellow-400 text-white'
-                  : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-white/[0.08] text-slate-600 dark:text-slate-300 hover:border-slate-300'
-              }`}
-            >
-              <Star size={13} className={favorites ? 'fill-white text-white' : ''} />
-              Favorites
-            </button>
-
-            <button
-              onClick={() => updateParams((p) => untagged ? p.delete('untagged') : p.set('untagged', '1'))}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors ${
-                untagged
-                  ? 'bg-brand border-brand text-white'
-                  : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-white/[0.08] text-slate-600 dark:text-slate-300 hover:border-slate-300'
-              }`}
-              title="Files with no tags applied (aspect ratio doesn't count)"
-            >
-              <Tag size={13} />
-              No Tags
-            </button>
-
-            {(selectedTags.size > 0 || favorites || untagged) && (
-              <button
-                onClick={clearFilters}
-                className="btn-ghost text-xs gap-1 text-slate-400 hover:text-red-400"
-              >
-                <X size={11} /> Clear filters
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Grid */}
-      <div ref={scrollRef} onScroll={handleGridScroll} className="flex-1 overflow-y-auto px-6 pb-6">
-        {loading ? (
-          <div className={`grid ${gridCols} gap-3`}>
-            {Array.from({ length: 20 }).map((_, i) => (
-              <div key={i} className="card aspect-video animate-pulse" />
-            ))}
-          </div>
-        ) : data.files.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-24 text-slate-400 dark:text-slate-500">
-            <Search size={32} className="mb-3" />
-            <p className="text-sm">No files found</p>
-            {(selectedTags.size > 0 || search) && (
-              <button onClick={clearFilters} className="btn-ghost mt-3 text-xs">
-                Clear filters
-              </button>
-            )}
-          </div>
-        ) : (
-          <div className={`grid ${gridCols} gap-3`}>
-            {data.files.map((file) => (
-              <MediaCard
-                key={file.id}
-                file={file}
-                selectMode={selectMode}
-                selected={selectedIds.has(file.id)}
-                onSelect={() => setSelectedIds(prev => {
-                  const next = new Set(prev)
-                  next.has(file.id) ? next.delete(file.id) : next.add(file.id)
-                  return next
-                })}
-                onFavoriteToggle={handleFavoriteToggle}
-                onPlay={(f) => { setPlayerBoxWidth(null); setPlayingFile(f) }}
+          <p className="pb-0.5 text-xs text-muted-foreground" aria-live="polite">
+            {query.isLoading ? 'Loading…' : `${total.toLocaleString()} ${total === 1 ? 'file' : 'files'}`}
+          </p>
+          {folder && folder !== 'none' && (
+            <div className="ml-auto flex items-center gap-2 pb-0.5">
+              <Switch
+                id="subfolders"
+                checked={subfolders}
+                onCheckedChange={(v) => updateParams((p) => (v ? p.delete('subfolders') : p.set('subfolders', '0')))}
               />
-            ))}
+              <Label htmlFor="subfolders" className="text-xs">Include subfolders</Label>
+            </div>
+          )}
+        </div>
+
+        <LibraryToolbar
+          searchInput={searchInput}
+          onSearchInput={setSearchInput}
+          sort={sort}
+          order={order}
+          onSort={(v) => updateParams((p) => p.set('sort', v))}
+          onOrder={() => updateParams((p) => p.set('order', order === 'desc' ? 'asc' : 'desc'))}
+          gridSize={gridSize}
+          onGridSize={(i) => { try { localStorage.setItem('gridSize', String(i)) } catch { /* ignore */ } updateParams((p) => p.set('grid', String(i))) }}
+          selecting={selectMode}
+          onToggleSelect={(on) => { setSelecting(on); if (!on) { setSelectedIds(new Set()) } }}
+          onRandom={handleRandom}
+          canRandom={files.length > 0}
+        />
+
+        <FilterBar
+          groups={groups}
+          tags={tags}
+          filters={{ tags: selectedTags, favorites, untagged, ai }}
+          onToggleTag={toggleTag}
+          onToggleFlag={toggleFlag}
+          onClear={clearFilters}
+        />
+      </div>
+
+      <div
+        ref={scrollRef}
+        onScroll={(e) => { try { sessionStorage.setItem(SCROLL_KEY, String(e.currentTarget.scrollTop)) } catch { /* ignore */ } }}
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4"
+      >
+        {query.isLoading ? (
+          <div className={`grid ${gridCols} gap-3 pb-4`} aria-busy="true">
+            {Array.from({ length: 12 }).map((_, i) => <Skeleton key={i} className="aspect-[4/3] rounded-xl" />)}
           </div>
+        ) : query.isError ? (
+          <Empty>
+            <EmptyHeader>
+              <EmptyTitle>Could not load the library</EmptyTitle>
+              <EmptyDescription>{query.error.message}</EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent><Button onClick={() => query.refetch()}>Try again</Button></EmptyContent>
+          </Empty>
+        ) : files.length === 0 ? (
+          <LibraryEmpty
+            filtersActive={filtersActive}
+            folder={folder}
+            libraryEmpty={counts?.total === 0}
+            onClear={clearFilters}
+          />
+        ) : (
+          <div>
+            <div className={`grid ${gridCols} gap-3 pb-4`}>
+              {files.map((file) => (
+                <MediaCard
+                  key={file.id}
+                  file={file}
+                  selectMode={selectMode}
+                  selected={selectedIds.has(file.id)}
+                  onSelect={handleSelect}
+                  onFavoriteToggle={handleFavorite}
+                  onPlay={setPlaying}
+                  onDragStartFiles={handleDragStart}
+                  onMove={handleMoveOne}
+                  onMarkReviewed={handleMarkReviewedOne}
+                />
+              ))}
+            </div>
+            <div ref={sentinelRef} className="flex h-10 items-center justify-center pb-4 text-xs text-muted-foreground">
+              {isFetchingNextPage ? <Spinner /> : hasNextPage ? null : files.length > PAGE_SIZE ? 'End of library' : null}
+            </div>
+          </div>
+        )}
+
+        {selectedIds.size > 0 && (
+          <BulkBar
+            files={selectedFiles}
+            total={total}
+            groups={groups}
+            onClear={clearSelection}
+            onSelectAll={() => setSelectedIds(new Set(files.map((f) => f.id)))}
+            onAddTag={bulk.addTag}
+            onRemoveTag={bulk.removeTag}
+            onMove={() => setMoveTarget(selectedFiles)}
+            onFavorite={(v) => bulk.setFavorite(selectedFiles, v)}
+            onMarkReviewed={async () => { if (await bulk.markReviewed(selectedFiles)) clearSelection() }}
+          />
         )}
       </div>
 
-      {selectMode && selectedIds.size > 0 && (
-        <div className="fixed bottom-0 left-52 right-0 z-30 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-white/[0.08] shadow-2xl">
-          <div className="flex items-start gap-6 p-4 max-h-56 overflow-y-auto">
-            <div className="flex-shrink-0 pt-0.5">
-              <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{selectedIds.size} selected</p>
-              <button onClick={() => setSelectedIds(new Set())} className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 mt-0.5">Clear</button>
-            </div>
-            <div className="flex-1 space-y-2.5">
-              {categories.map(cat => {
-                const catTags = allTags.filter(t => t.category_id === cat.id)
-                if (!catTags.length) return null
-                const selFiles = data.files.filter(f => selectedIds.has(f.id))
-                return (
-                  <div key={cat.id}>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider font-medium mb-1.5">{cat.name}</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {catTags.map(tag => {
-                        const hasCount = selFiles.filter(f => f.tags.some(t => t.id === tag.id)).length
-                        const allHave = hasCount === selFiles.length
-                        return (
-                          <button
-                            key={tag.id}
-                            onClick={() => handleBulkTag(tag.id, !allHave)}
-                            className={`tag-btn ${allHave ? 'tag-btn-active' : ''}`}
-                          >
-                            {tag.name}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-            <button onClick={() => { setSelectMode(false); setSelectedIds(new Set()) }} className="btn-primary flex-shrink-0">Done</button>
-          </div>
-        </div>
-      )}
-
-      {/* Play-in-place modal — lets you watch a video without leaving the library
-          grid (filters, scroll position, selection all stay untouched). */}
-      {playingFile && (
-        <div
-          className="fixed inset-0 z-40 bg-black/80 flex items-center justify-center p-6"
-          onClick={() => setPlayingFile(null)}
-        >
-          <div className="w-full max-w-5xl h-[80vh] flex flex-col">
-            {/* Width-matched to the player box below (once known) so the close
-                button's right edge lines up with the video's right edge. */}
-            <div
-              className="flex items-center justify-between mb-3 flex-shrink-0 mx-auto w-full"
-              style={playerBoxWidth ? { width: `${playerBoxWidth}px` } : undefined}
-            >
-              <p className="text-sm text-white/80 truncate pr-4">{playingFile.filename}</p>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <button
-                  onClick={(e) => { e.stopPropagation(); navigate(`/player/${playingFile.id}?${searchParams.toString()}`) }}
-                  className="btn-ghost-dark"
-                >
-                  <ExternalLink size={14} /> Open Page
-                </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); setPlayingFile(null) }}
-                  className="btn-ghost-dark"
-                >
-                  <X size={16} /> Close
-                </button>
-              </div>
-            </div>
-            <div className="flex-1 min-h-0">
-              <VideoPlayer file={playingFile} onBoxResize={setPlayerBoxWidth} />
-            </div>
-          </div>
-        </div>
-      )}
+      <MoveToFolderDialog
+        open={!!moveTarget}
+        onOpenChange={(o) => !o && setMoveTarget(null)}
+        title={`Move ${moveTarget?.length ?? 0} ${moveTarget?.length === 1 ? 'file' : 'files'}`}
+        onSelect={async (id, f) => {
+          const ok = await bulk.moveToFolder(moveTarget, id, f?.name)
+          if (ok && moveTarget.length > 1) clearSelection()
+        }}
+      />
+      <PlayerDialog file={playing} onOpenChange={(o) => !o && setPlaying(null)} />
     </div>
+  )
+}
+
+function LibraryEmpty({ filtersActive, folder, libraryEmpty, onClear }) {
+  if (filtersActive) {
+    return (
+      <Empty>
+        <EmptyHeader>
+          <EmptyMedia variant="icon"><RiSearchLine /></EmptyMedia>
+          <EmptyTitle>No files match</EmptyTitle>
+          <EmptyDescription>Nothing fits the current search and filters.</EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent><Button variant="outline" onClick={onClear}>Clear filters</Button></EmptyContent>
+      </Empty>
+    )
+  }
+  if (folder) {
+    return (
+      <Empty>
+        <EmptyHeader>
+          <EmptyMedia variant="icon"><RiFolderOpenLine /></EmptyMedia>
+          <EmptyTitle>{folder === 'none' ? 'Everything is filed' : 'This folder is empty'}</EmptyTitle>
+          <EmptyDescription>
+            {folder === 'none'
+              ? 'Every file lives in a folder.'
+              : 'Drag media from the library onto this folder in the sidebar, or select files and use Move.'}
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+    )
+  }
+  return (
+    <Empty>
+      <EmptyHeader>
+        <EmptyMedia variant="icon"><RiFilmLine /></EmptyMedia>
+        <EmptyTitle>{libraryEmpty ? 'Your library is empty' : 'Nothing here yet'}</EmptyTitle>
+        <EmptyDescription>Upload files, import from a URL, or drop media into the watched folder and scan.</EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent>
+        <Button render={<Link to="/add-media" />}><RiAddCircleLine data-icon="inline-start" /> Add media</Button>
+      </EmptyContent>
+    </Empty>
   )
 }
