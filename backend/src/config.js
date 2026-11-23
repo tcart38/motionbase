@@ -16,5 +16,7 @@ export const config = {
   get scanInterval() { return int('SCAN_INTERVAL', 30) },
   get isProd() { return process.env.NODE_ENV === 'production' },
   get frameConcurrency() { return Math.max(1, int('FRAME_CONCURRENCY', 2)) },
+  // Set TRUST_PROXY=1 behind a reverse proxy so client IPs (login rate limit) come from X-Forwarded-For.
+  get trustProxy() { return ['1', 'true'].includes(String(process.env.TRUST_PROXY || '').toLowerCase()) },
   get agentApiToken() { return process.env.AGENT_API_TOKEN || '' },
 }

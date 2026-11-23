@@ -5,7 +5,8 @@ import { existsSync, mkdirSync } from 'fs'
 import path from 'path'
 import { getDb } from '../db/index.js'
 import { applyImportMeta } from '../services/importMeta.js'
-import { runScan } from '../services/scanner.js'
+import { runScan, claimUpload, listMediaFiles } from '../services/scanner.js'
+import { actorFromReq } from '../services/history.js'
 import { getCookiesPath } from './cookies.js'
 
 const router = Router()
@@ -48,6 +49,11 @@ router.post('/', async (req, res) => {
 
   const send = (obj) => res.write(JSON.stringify(obj) + '\n')
 
+  // Files that appear in the media folder while yt-dlp runs are attributed to this person.
+  const by = actorFromReq(req)
+  let before = new Set()
+  try { before = new Set(await listMediaFiles()) } catch {}
+
   const proc = spawn('python3', args)
 
   const handleOutput = (data) => {
@@ -62,6 +68,9 @@ router.post('/', async (req, res) => {
 
   proc.on('close', async (code) => {
     if (code === 0) {
+      try {
+        for (const f of await listMediaFiles()) if (!before.has(f)) claimUpload(f, { source: 'import', by, detail: { url } })
+      } catch {}
       try { await runScan() } catch {}
       try {
         const n = await applyImportMeta(getDb(), importMetaDir())

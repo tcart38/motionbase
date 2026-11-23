@@ -4,6 +4,8 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { getDb } from '../db/index.js'
 import { reschedule } from '../services/scheduler.js'
+import { requireAdmin } from '../middleware/session.js'
+import { audit, userActor } from '../services/auth.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const { version } = JSON.parse(readFileSync(path.join(__dirname, '../../package.json'), 'utf8'))
@@ -17,7 +19,7 @@ router.get('/', (req, res) => {
   res.json({ ...settings, version })
 })
 
-router.put('/', (req, res) => {
+router.put('/', requireAdmin, (req, res) => {
   const db = getDb()
   const { scan_interval, agent_requires_confirmation } = req.body
 
@@ -35,6 +37,9 @@ router.put('/', (req, res) => {
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('agent_requires_confirmation', ?)")
       .run(String(agent_requires_confirmation))
   }
+
+  const changed = ['scan_interval', 'agent_requires_confirmation'].filter((k) => req.body[k] !== undefined)
+  if (changed.length) audit(db, userActor(req.user), 'settings_changed', Object.fromEntries(changed.map((k) => [k, req.body[k]])))
 
   const rows = db.prepare('SELECT key, value FROM settings').all()
   res.json(Object.fromEntries(rows.map((r) => [r.key, r.value])))

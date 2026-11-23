@@ -2,10 +2,13 @@ import { Router } from 'express'
 import { createReadStream, statSync, renameSync, existsSync, rmSync } from 'fs'
 import path from 'path'
 import { getDb } from '../db/index.js'
-import { SORT_COLUMNS, buildFileFilter, attachTags, getFileWithTags } from '../services/fileQuery.js'
+import { orderBy, buildFileFilter, attachTags, getFileWithTags } from '../services/fileQuery.js'
 import { config } from '../config.js'
 import { HttpError } from '../services/errors.js'
 import { applyFileUpdate, validateChanges } from '../services/fileMutations.js'
+import { requireAdmin } from '../middleware/session.js'
+import { actorFromReq, recordEvent, getHistory } from '../services/history.js'
+import { audit, userActor } from '../services/auth.js'
 
 const router = Router()
 
@@ -27,15 +30,15 @@ router.get('/', (req, res) => {
     status = '',
     source = '',
     trash = '',
+    uploader = '',
   } = req.query
 
-  const sortCol = SORT_COLUMNS[sort] || 'f.date_added'
   const sortDir = order === 'asc' ? 'ASC' : 'DESC'
 
   const offset = (Math.max(1, parseInt(page, 10)) - 1) * Math.max(1, parseInt(limit, 10))
   const limitVal = Math.max(1, parseInt(limit, 10))
 
-  const { where, params: allParams } = buildFileFilter(db, { view, tags, search, favorites, untagged, folder, subfolders, status, source, trash })
+  const { where, params: allParams } = buildFileFilter(db, { view, tags, search, favorites, untagged, folder, subfolders, status, source, trash, uploader })
 
   const countSql = `SELECT COUNT(*) AS total FROM files f WHERE ${where}`
   const { total } = db.prepare(countSql).get(...allParams)
@@ -43,7 +46,7 @@ router.get('/', (req, res) => {
   const rows = db.prepare(`
     SELECT f.* FROM files f
     WHERE ${where}
-    ORDER BY ${sortCol} ${sortDir}
+    ORDER BY ${orderBy(sort, order)}
     LIMIT ? OFFSET ?
   `).all(...allParams, limitVal, offset)
 
@@ -76,10 +79,13 @@ router.post('/trash', (req, res) => {
   const stamp = deleted ? new Date().toISOString() : null
   const updated = db.transaction(() => {
     const upd = db.prepare('UPDATE files SET deleted_at = ? WHERE id = ?')
+    const by = actorFromReq(req)
     let n = 0
     for (const id of file_ids) {
-      if (!db.prepare('SELECT 1 FROM files WHERE id = ?').get(id)) throw new HttpError(404, `File ${id} not found`)
+      const f = db.prepare('SELECT deleted_at FROM files WHERE id = ?').get(id)
+      if (!f) throw new HttpError(404, `File ${id} not found`)
       n += upd.run(stamp, id).changes
+      if (!!f.deleted_at !== !!deleted) recordEvent(db, id, by, deleted ? 'trashed' : 'restored')
     }
     return n
   })()
@@ -89,7 +95,7 @@ router.post('/trash', (req, res) => {
 // POST /api/files/purge { file_ids } or { all: true }
 // Permanently deletes TRASHED files: removes the media file from disk, its thumbnail/frames and the record.
 // If the media folder is read-only the file stays in the Trash and is reported under `failed`.
-router.post('/purge', (req, res) => {
+router.post('/purge', requireAdmin, (req, res) => {
   const db = getDb()
   const { file_ids, all } = req.body || {}
   let rows
@@ -115,6 +121,12 @@ router.post('/purge', (req, res) => {
     try { rmSync(path.join(config.framesDir, String(file.id)), { recursive: true, force: true }) } catch {}
     purged.push(file.id)
   }
+  if (purged.length || failed.length) {
+    audit(db, userActor(req.user), 'purge', {
+      count: purged.length, failed: failed.length,
+      files: rows.filter((f) => purged.includes(f.id)).slice(0, 200).map((f) => ({ id: f.id, filename: f.filename })),
+    })
+  }
   res.json({ purged: purged.length, failed })
 })
 
@@ -132,17 +144,25 @@ router.post('/bulk', (req, res) => {
   const changes = { add_tag_ids, remove_tag_ids, folder_id, is_favorite, mark_reviewed: mark_reviewed || undefined }
   validateChanges(db, changes)
 
+  const by = actorFromReq(req)
   const updated = db.transaction(() => {
     let n = 0
     for (const id of ids) {
       const file = db.prepare('SELECT * FROM files WHERE id = ?').get(id)
       if (!file) throw new HttpError(404, `File ${id} not found`)
-      applyFileUpdate(db, file, changes)
+      applyFileUpdate(db, file, changes, { by })
       n++
     }
     return n
   })()
   res.json({ updated })
+})
+
+// GET /api/files/:id/history -> { events: [{id, action, actor:{user_id,label}, detail, created_at}], uploaded:{at, by, source} }
+router.get('/:id/history', (req, res) => {
+  const h = getHistory(getDb(), Number(req.params.id), { limit: req.query.limit })
+  if (!h) return res.status(404).json({ error: 'Not found' })
+  res.json(h)
 })
 
 router.get('/:id', (req, res) => {
@@ -154,15 +174,14 @@ router.get('/:id', (req, res) => {
 // GET /api/files/:id/next — id of the next file in the current filtered/sorted view (wraps around)
 router.get('/:id/next', (req, res) => {
   const db = getDb()
-  const { view = 'all', tags = '', sort = 'date_added', order = 'desc', search = '', favorites = '', untagged = '', folder = '', subfolders = '', status = '', source = '', trash = '' } = req.query
+  const { view = 'all', tags = '', sort = 'date_added', order = 'desc', search = '', favorites = '', untagged = '', folder = '', subfolders = '', status = '', source = '', trash = '', uploader = '' } = req.query
 
-  const sortCol = SORT_COLUMNS[sort] || 'f.date_added'
   const sortDir = order === 'asc' ? 'ASC' : 'DESC'
 
-  const { where, params } = buildFileFilter(db, { view, tags, search, favorites, untagged, folder, subfolders, status, source, trash })
+  const { where, params } = buildFileFilter(db, { view, tags, search, favorites, untagged, folder, subfolders, status, source, trash, uploader })
 
   const ids = db.prepare(`
-    SELECT f.id FROM files f WHERE ${where} ORDER BY ${sortCol} ${sortDir}, f.id ${sortDir}
+    SELECT f.id FROM files f WHERE ${where} ORDER BY ${orderBy(sort, order)}, f.id ${sortDir}
   `).all(...params).map((r) => r.id)
 
   if (ids.length === 0) return res.status(404).json({ error: 'No files match the current filter' })
@@ -193,12 +212,13 @@ router.patch('/:id', (req, res) => {
         return res.status(500).json({ error: 'Could not rename file: ' + err.message })
       }
       db.prepare('UPDATE files SET filename = ?, filepath = ? WHERE id = ?').run(newName, newFilepath, file.id)
+      recordEvent(db, file.id, actorFromReq(req), 'renamed', { from: file.filename, to: newName })
     }
   }
 
   const changes = { needs_tagging, tag_ids, is_favorite, notes, folder_id, mark_reviewed }
   validateChanges(db, changes)
-  db.transaction(() => applyFileUpdate(db, file, changes))()
+  db.transaction(() => applyFileUpdate(db, file, changes, { by: actorFromReq(req) }))()
 
   res.json(getFileWithTags(db, file.id))
 })
@@ -209,6 +229,7 @@ router.delete('/:id', (req, res) => {
   const file = db.prepare('SELECT * FROM files WHERE id = ?').get(req.params.id)
   if (!file) return res.status(404).json({ error: 'Not found' })
   db.prepare('DELETE FROM files WHERE id = ?').run(file.id)
+  audit(db, userActor(req.user), 'purge', { count: 1, record_only: true, files: [{ id: file.id, filename: file.filename }] })
   // Remove derived artifacts (thumbnail + cached frames); the media file itself is untouched.
   try { rmSync(file.thumbnail_path || path.join(config.thumbnailsDir, `${file.id}.jpg`), { force: true }) } catch {}
   try { rmSync(path.join(config.framesDir, String(file.id)), { recursive: true, force: true }) } catch {}

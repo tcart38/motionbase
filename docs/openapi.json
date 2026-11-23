@@ -133,6 +133,14 @@
             }
           },
           {
+            "name": "uploader",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "User id of the uploader, or \"none\" for unknown."
+          },
+          {
             "name": "limit",
             "in": "query",
             "schema": {
@@ -1230,6 +1238,25 @@
           },
           "is_favorite": {
             "type": "boolean"
+          },
+          "uploader": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Display name of the user who added the file; null when unknown."
+          },
+          "upload_source": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "user",
+              "import",
+              "scan",
+              null
+            ]
           },
           "folder_id": {
             "type": [

@@ -20,5 +20,6 @@ export function reschedule() {
     runScan().catch(console.error)
   }, minutes * 60 * 1000)
 
+  timer.unref() // never keeps the process alive on its own (the HTTP server does)
   console.log(`Scheduler: will auto-scan every ${minutes} minutes`)
 }

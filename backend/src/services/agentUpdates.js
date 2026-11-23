@@ -5,6 +5,7 @@ import {
 } from './fileMutations.js'
 import { ensurePath, findByPath, getPathMap } from './folders.js'
 import { snapshotFile, logActivity } from './activity.js'
+import { actorFromAgent } from './history.js'
 
 export const MAX_BATCH = 500
 const MAX_NOTES = 20000
@@ -232,6 +233,7 @@ export function runBatch(db, { updates, create_missing = false, dry_run = false 
 
   const confirm = requiresConfirmation(db)
   const actor = `agent:${agent?.name || 'unknown'}`
+  const by = actorFromAgent(agent)
   let payload
 
   try {
@@ -257,7 +259,7 @@ export function runBatch(db, { updates, create_missing = false, dry_run = false 
       const before = {}, after = {}, results = []
       for (const r of resolved) {
         const b = snapshotFile(db, r.file.id, pathMap)
-        applyFileUpdate(db, r.file, r.changes, { actor, systemIds: state.systemIds, requireConfirmation: confirm })
+        applyFileUpdate(db, r.file, r.changes, { actor, by, systemIds: state.systemIds, requireConfirmation: confirm })
         const a = snapshotFile(db, r.file.id, pathMap)
         const summary = summarizeChange(b, a)
         results.push({ file_id: r.file.id, ...summary })

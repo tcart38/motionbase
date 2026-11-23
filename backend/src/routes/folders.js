@@ -2,6 +2,8 @@ import { Router } from 'express'
 import path from 'path'
 import { config } from '../config.js'
 import { getDb } from '../db/index.js'
+import { requireAdmin } from '../middleware/session.js'
+import { actorFromReq, recordEvent } from '../services/history.js'
 import { HttpError } from '../services/errors.js'
 import {
   getTree, getFolder, createFolder, renameFolder, moveFolder, deleteFolder, ensurePath,
@@ -39,7 +41,7 @@ router.delete('/:id', (req, res) => {
 // POST /api/folders/import-from-disk { dry_run? }
 // Mirrors the on-disk sub-directory structure of MEDIA_DIR into virtual folders and
 // files still unfiled. Already-filed files are left alone.
-router.post('/import-from-disk', (req, res) => {
+router.post('/import-from-disk', requireAdmin, (req, res) => {
   const db = getDb()
   const dryRun = !!req.body?.dry_run
   const mediaDir = path.resolve(config.mediaDir)
@@ -57,6 +59,7 @@ router.post('/import-from-disk', (req, res) => {
         const { folder, created } = ensurePath(db, rel.split(path.sep).join('/'))
         result.folders_created += created
         db.prepare('UPDATE files SET folder_id = ? WHERE id = ?').run(folder.id, f.id)
+        recordEvent(db, f.id, actorFromReq(req), 'folder_changed', { from_path: null, to_path: rel.split(path.sep).join('/') })
         result.files_assigned++
       }
       if (dryRun) throw rollback

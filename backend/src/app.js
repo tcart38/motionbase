@@ -16,14 +16,26 @@ import activityRouter from './routes/activity.js'
 import cookiesRouter from './routes/cookies.js'
 import agentRouter from './routes/agent.js'
 import mcpRouter from './routes/mcp.js'
+import authRouter from './routes/auth.js'
+import usersRouter from './routes/users.js'
+import adminRouter from './routes/admin.js'
+import { sessionMiddleware } from './middleware/session.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // Builds the Express app. The database must already be initialised (initDb()).
 export function createApp({ serveFrontend = config.isProd } = {}) {
   const app = express()
+  if (config.trustProxy) app.set('trust proxy', true)
   app.use(cors())
   app.use(express.json({ limit: '2mb' }))
+
+  // Optional login: sets req.user / req.authEnabled and enforces sessions when login is on.
+  app.use(sessionMiddleware)
+  app.get('/api/health', (req, res) => res.json({ ok: true }))
+  app.use('/api/auth', authRouter)
+  app.use('/api/users', usersRouter)
+  app.use('/api/admin', adminRouter)
 
   // Serve generated thumbnails
   app.use('/thumbnails', express.static(config.thumbnailsDir))

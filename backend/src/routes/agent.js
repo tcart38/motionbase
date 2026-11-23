@@ -6,7 +6,7 @@ import { config } from '../config.js'
 import { getDb } from '../db/index.js'
 import { agentAuth } from '../middleware/agentAuth.js'
 import { HttpError } from '../services/errors.js'
-import { buildFileFilter } from '../services/fileQuery.js'
+import { buildFileFilter, uploadersFor } from '../services/fileQuery.js'
 import { getTree, getPathMap, findByPath, ensurePath, getFolder } from '../services/folders.js'
 import { runBatch, requiresConfirmation, MAX_BATCH } from '../services/agentUpdates.js'
 import { listActivity, getActivity, logActivity } from '../services/activity.js'
@@ -91,6 +91,7 @@ function serializeFiles(db, rows) {
       { id: t.id, name: t.name, category_id: t.category_id, category: t.category, source: t.source }
     )
   }
+  const uploaders = uploadersFor(db, rows)
   const now = new Date().toISOString()
   return rows.map((f) => {
     const tags = byFile[f.id] || []
@@ -105,6 +106,8 @@ function serializeFiles(db, rows) {
       is_missing: !!f.is_missing,
       is_favorite: !!f.is_favorite,
       notes: f.notes,
+      uploader: f.uploaded_by ? uploaders.get(f.uploaded_by)?.display_name ?? null : null,
+      upload_source: f.upload_source ?? null,
       folder_id: f.folder_id,
       folder_path: f.folder_id ? pathMap.get(f.folder_id) ?? null : null,
       tags,
@@ -185,13 +188,13 @@ function resolveFolderParam(db, folder) {
 
 router.get('/files', (req, res) => {
   const db = getDb()
-  const { status = 'all', folder, subfolders = '1', tags = '', search = '', favorites = '', cursor } = req.query
+  const { status = 'all', folder, subfolders = '1', tags = '', search = '', favorites = '', uploader = '', cursor } = req.query
   if (!STATUSES.includes(status)) throw new HttpError(400, `status must be one of ${STATUSES.join(', ')}`)
   const limit = clampInt(req.query.limit, 50, 1, 200)
 
   const { where, params } = buildFileFilter(db, {
     status: status === 'all' ? '' : status,
-    folder: resolveFolderParam(db, folder), subfolders, tags, search, favorites,
+    folder: resolveFolderParam(db, folder), subfolders, tags, search, favorites, uploader,
   })
   const { total } = db.prepare(`SELECT COUNT(*) AS total FROM files f WHERE ${where}`).get(...params)
   const after = cursor ? clampInt(cursor, 0, 0, Number.MAX_SAFE_INTEGER) : 0

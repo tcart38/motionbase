@@ -1,5 +1,7 @@
 import { Router } from 'express'
 import { getDb } from '../db/index.js'
+import { requireAdmin } from '../middleware/session.js'
+import { actorFromReq } from '../services/history.js'
 import { listActivity, getActivity, revertActivity } from '../services/activity.js'
 
 const router = Router()
@@ -12,8 +14,8 @@ router.get('/:id', (req, res) => {
   res.json(a)
 })
 
-router.post('/:id/revert', (req, res) => {
-  res.json(revertActivity(getDb(), Number(req.params.id)))
+router.post('/:id/revert', requireAdmin, (req, res) => {
+  res.json(revertActivity(getDb(), Number(req.params.id), { by: actorFromReq(req) }))
 })
 
 export default router

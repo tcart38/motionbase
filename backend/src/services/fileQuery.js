@@ -7,9 +7,19 @@ const UNTAGGED_SQL = `NOT EXISTS (
 
 export const SORT_COLUMNS = { date_added: 'f.date_added', filename: 'f.filename', duration: 'f.duration' }
 
+const UPLOADER_NAME = '(SELECT u.display_name FROM users u WHERE u.id = f.uploaded_by)'
+
+// ORDER BY expression for a sort key. Unknown keys fall back to date_added. sort=uploader orders by the
+// uploader's display name with unknown uploaders always last.
+export function orderBy(sort, order) {
+  const dir = order === 'asc' ? 'ASC' : 'DESC'
+  if (sort === 'uploader') return `${UPLOADER_NAME} IS NULL, ${UPLOADER_NAME} COLLATE NOCASE ${dir}, f.id ${dir}`
+  return `${SORT_COLUMNS[sort] || 'f.date_added'} ${dir}`
+}
+
 // Shared WHERE-clause builder for the file list and the filter-aware "next file" lookup.
 // Tag filtering is AND-across-categories, OR-within-category.
-export function buildFileFilter(db, { view = 'all', tags = '', search = '', favorites = '', untagged = '', folder = '', subfolders = '', status = '', source = '', trash = '' } = {}) {
+export function buildFileFilter(db, { view = 'all', tags = '', search = '', favorites = '', untagged = '', folder = '', subfolders = '', status = '', source = '', trash = '', uploader = '' } = {}) {
   const tagIds = tags ? String(tags).split(',').map(Number).filter(Boolean) : []
   const tagConditions = []
   const tagParams = []
@@ -56,6 +66,16 @@ export function buildFileFilter(db, { view = 'all', tags = '', search = '', favo
     folderParams.push(Number(folder))
   }
 
+  // uploader=none -> unknown uploader (before accounts, scanned, or login off); uploader=<userId>
+  let uploaderCondition = null
+  const uploaderParams = []
+  if (uploader === 'none') {
+    uploaderCondition = 'f.uploaded_by IS NULL'
+  } else if (uploader !== '' && uploader != null && Number.isInteger(Number(uploader))) {
+    uploaderCondition = 'f.uploaded_by = ?'
+    uploaderParams.push(Number(uploader))
+  }
+
   // "Untagged" ignores the auto-applied Aspect Ratio category (is_system = 1) —
   // a file with only its aspect ratio tag still counts as having no real tags.
   const untaggedCondition = untagged === '1' ? UNTAGGED_SQL : null
@@ -76,6 +96,7 @@ export function buildFileFilter(db, { view = 'all', tags = '', search = '', favo
     favorites === '1' ? 'f.is_favorite = 1' : null,
     search.trim() ? '(f.filename LIKE ? OR f.notes LIKE ?)' : null,
     folderCondition,
+    uploaderCondition,
     untaggedCondition,
     status === 'untagged' ? UNTAGGED_SQL : null,
     statusCondition,
@@ -83,7 +104,7 @@ export function buildFileFilter(db, { view = 'all', tags = '', search = '', favo
     ...tagConditions,
   ].filter(Boolean).join(' AND ')
 
-  return { where, params: [...preParams, ...folderParams, ...tagParams] }
+  return { where, params: [...preParams, ...folderParams, ...uploaderParams, ...tagParams] }
 }
 
 // Attach full tag objects (`tags`) to each file row. Returns new objects.
@@ -106,11 +127,24 @@ export function attachTags(db, rows) {
       })
     }
   }
-  return rows.map((r) => ({ ...r, tags: tagsByFile[r.id] || [] }))
+  const uploaders = uploadersFor(db, rows)
+  return rows.map((r) => ({
+    ...r, tags: tagsByFile[r.id] || [],
+    uploader: r.uploaded_by ? uploaders.get(r.uploaded_by) ?? null : null,
+  }))
 }
 
 export function getFileWithTags(db, id) {
   const file = db.prepare('SELECT * FROM files WHERE id = ?').get(id)
   if (!file) return null
   return attachTags(db, [file])[0]
+}
+
+// Map userId -> { id, display_name, username } for the uploaders of these file rows.
+export function uploadersFor(db, rows) {
+  const ids = [...new Set(rows.map((r) => r.uploaded_by).filter(Boolean))]
+  if (!ids.length) return new Map()
+  return new Map(db.prepare(
+    `SELECT id, display_name, username FROM users WHERE id IN (${ids.map(() => '?').join(',')})`
+  ).all(...ids).map((u) => [u.id, u]))
 }

@@ -2,6 +2,7 @@ import { promises as fs } from 'fs'
 import path from 'path'
 import { config } from '../config.js'
 import { getDb } from '../db/index.js'
+import { recordEvent } from './history.js'
 import { probeVideo, probeImage, generateThumbnail } from './ffprobe.js'
 
 const VIDEO_EXT = new Set(['.mp4', '.mov', '.avi', '.mkv', '.webm', '.m4v', '.wmv', '.flv', '.mxf'])
@@ -9,6 +10,19 @@ const IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.t
 
 let isScanning = false
 let lastScanResult = null
+
+// Files that the app itself is about to put into the media folder (uploads, URL imports) register who is
+// responsible, so the scan that discovers them can attribute them. Anything else found on disk is 'scan'.
+const pendingClaims = new Map()
+export function claimUpload(filepath, claim) {
+  pendingClaims.set(path.normalize(filepath), { ...claim, at: Date.now() })
+}
+// Claims for files that never showed up (failed import) are dropped after a day.
+const CLAIM_TTL_MS = 24 * 3600 * 1000
+
+export async function listMediaFiles() {
+  return (await walkDirectory(config.mediaDir)).map((f) => f.filepath)
+}
 
 export function getScanState() {
   return { isScanning, lastScanResult }
@@ -18,6 +32,7 @@ export async function runScan() {
   if (isScanning) return { skipped: true, reason: 'Scan already in progress' }
 
   isScanning = true
+  for (const [k, c] of pendingClaims) if (Date.now() - c.at > CLAIM_TTL_MS) pendingClaims.delete(k)
   const result = { added: 0, missing: 0, errors: [] }
 
   try {
@@ -98,6 +113,15 @@ async function processFile(db, fileInfo) {
   const { lastInsertRowid: id } = db.prepare(
     `INSERT INTO files (filepath, filename, file_type) VALUES (?, ?, ?)`
   ).run(fileInfo.filepath, fileInfo.filename, fileInfo.file_type)
+
+  // Who added it: a registered upload/import, otherwise the library scan.
+  const claim = pendingClaims.get(path.normalize(fileInfo.filepath))
+  pendingClaims.delete(path.normalize(fileInfo.filepath))
+  const source = claim?.source || 'scan'
+  db.prepare('UPDATE files SET uploaded_by = ?, upload_source = ? WHERE id = ?').run(claim?.by?.user_id ?? null, source, id)
+  recordEvent(db, Number(id), claim?.by ?? { user_id: null, token_id: null, label: 'Library scan' }, 'uploaded', {
+    filename: fileInfo.filename, source, ...(claim?.detail || {}),
+  })
 
   let meta = {}
   try {

@@ -1,6 +1,8 @@
 // Shared write path for file metadata (used by the UI routes and the agent API).
 // Filename changes touch the disk and stay in the route.
 import { HttpError } from './errors.js'
+import { getPathMap } from './folders.js'
+import { recordEvent, describeTags, truncate } from './history.js'
 
 export function getSystemTagIds(db) {
   return new Set(db.prepare(`
@@ -47,11 +49,54 @@ export function mergeNotes(existing, incoming, mode = 'replace') {
   return next
 }
 
-// actor: 'user' | 'agent:<name>'
+// actor: 'user' | 'agent:<name>' (stored in reviewed_by / tag source)
+// by:    { user_id, token_id, label } who is making the change, for the file history (see services/history.js)
 // changes: { needs_tagging, tag_ids, add_tag_ids, remove_tag_ids, is_favorite,
 //            notes, notes_mode, folder_id, mark_reviewed }
 // Caller must validate that referenced tag/folder ids exist and run inside a transaction.
-export function applyFileUpdate(db, file, changes, { actor = 'user', systemIds, requireConfirmation = false } = {}) {
+export function applyFileUpdate(db, file, changes, opts = {}) {
+  const { by } = opts
+  const before = db.prepare(
+    'SELECT is_favorite, notes, folder_id, reviewed_at, needs_tagging, agent_reviewed_at FROM files WHERE id = ?'
+  ).get(file.id)
+  const tagsBefore = getFileTagIds(db, file.id)
+  applyChanges(db, file, changes, opts)
+  logChanges(db, file.id, before, tagsBefore, by)
+}
+
+// Compares the file with its pre-change snapshot and records one event per kind of change.
+function logChanges(db, fileId, before, tagsBefore, by) {
+  if (!before) return
+  const after = db.prepare(
+    'SELECT is_favorite, notes, folder_id, reviewed_at, reviewed_by, needs_tagging, agent_reviewed_at FROM files WHERE id = ?'
+  ).get(fileId)
+  if (!!after.is_favorite !== !!before.is_favorite) {
+    recordEvent(db, fileId, by, 'favorite_changed', { from: !!before.is_favorite, to: !!after.is_favorite })
+  }
+  if ((after.notes ?? null) !== (before.notes ?? null)) {
+    recordEvent(db, fileId, by, 'notes_changed', { from: truncate(before.notes), to: truncate(after.notes) })
+  }
+  if ((after.folder_id ?? null) !== (before.folder_id ?? null)) {
+    const paths = getPathMap(db)
+    recordEvent(db, fileId, by, 'folder_changed', {
+      from_path: before.folder_id ? paths.get(before.folder_id) ?? null : null,
+      to_path: after.folder_id ? paths.get(after.folder_id) ?? null : null,
+    })
+  }
+  const tagsAfter = getFileTagIds(db, fileId)
+  const was = new Set(tagsBefore), now = new Set(tagsAfter)
+  const addedIds = tagsAfter.filter((id) => !was.has(id)), removedIds = tagsBefore.filter((id) => !now.has(id))
+  if (addedIds.length || removedIds.length) {
+    recordEvent(db, fileId, by, 'tags_changed', { added: describeTags(db, addedIds), removed: describeTags(db, removedIds) })
+  }
+  if (after.reviewed_at && !before.reviewed_at) recordEvent(db, fileId, by, 'reviewed', { by: after.reviewed_by })
+  else if (!after.reviewed_at && before.reviewed_at) recordEvent(db, fileId, by, 'unreviewed')
+  if (after.agent_reviewed_at && after.agent_reviewed_at !== before.agent_reviewed_at) {
+    recordEvent(db, fileId, by, 'agent_update', { agent_reviewed: true, awaiting_confirmation: !after.reviewed_at })
+  }
+}
+
+function applyChanges(db, file, changes, { actor = 'user', systemIds, requireConfirmation = false } = {}) {
   const { needs_tagging, is_favorite, notes, notes_mode, folder_id, mark_reviewed } = changes
   const isAgent = actor !== 'user'
 

@@ -1,5 +1,7 @@
 import { HttpError } from './errors.js'
 import { getPathMap } from './folders.js'
+import { recordEvent } from './history.js'
+import { audit } from './auth.js'
 
 // Everything an agent write can change on a file; used for undo.
 export function snapshotFile(db, fileId, pathMap = getPathMap(db)) {
@@ -61,7 +63,7 @@ export function getActivity(db, id) {
 
 // Restore every file in the entry to its pre-change snapshot. Later edits to the same
 // files (by anyone) are overwritten.
-export function revertActivity(db, id) {
+export function revertActivity(db, id, { by } = {}) {
   return db.transaction(() => {
     const row = db.prepare('SELECT * FROM agent_activity WHERE id = ?').get(id)
     if (!row) throw new HttpError(404, 'Not found')
@@ -83,9 +85,11 @@ export function revertActivity(db, id) {
       db.prepare('DELETE FROM file_tags WHERE file_id = ?').run(fileId)
       const ins = db.prepare('INSERT OR IGNORE INTO file_tags (file_id, tag_id, source) VALUES (?, ?, ?)')
       for (const t of snap.tags) if (tagExists.get(t.id)) ins.run(fileId, t.id, t.source)
+      recordEvent(db, Number(fileId), by, 'reverted', { activity_id: id, action: row.action, agent: row.agent_name })
       restored++
     }
     db.prepare("UPDATE agent_activity SET reverted_at = datetime('now') WHERE id = ?").run(id)
+    audit(db, by && { user_id: by.user_id, label: by.label }, 'activity_reverted', { activity_id: id, files: restored })
     return { reverted: true, files_restored: restored }
   })()
 }
