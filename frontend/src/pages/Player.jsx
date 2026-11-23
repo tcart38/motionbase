@@ -120,7 +120,7 @@ function GroupStrip({ group, currentId, onOpen }) {
         <Button variant="outline" size="icon-sm" onClick={() => go(-1)} aria-label="Previous item in group" title="Previous item (Alt+←)"><RiArrowLeftSLine /></Button>
         <Button variant="outline" size="icon-sm" onClick={() => go(1)} aria-label="Next item in group" title="Next item (Alt+→)"><RiArrowRightSLine /></Button>
       </div>
-      <ul ref={stripRef} className="flex gap-1.5 overflow-x-auto pb-0.5">
+      <ul ref={stripRef} className="flex gap-1.5 overflow-x-auto p-0.5">
         {items.map((m, i) => (
           <li key={m.id} className="shrink-0">
             <button

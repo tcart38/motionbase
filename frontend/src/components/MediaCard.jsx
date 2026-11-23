@@ -247,9 +247,9 @@ function MediaCard({
   if (!grouped) return card
   // Stacked-card look: two offset layers peek out below and beside the card.
   return (
-    <div className="relative pb-2.5" data-group={file.group_id}>
-      <div aria-hidden className="absolute inset-x-3 bottom-0 top-3 rounded-xl bg-muted ring-1 ring-foreground/10" />
-      <div aria-hidden className="absolute inset-x-1.5 bottom-[5px] top-1.5 rounded-xl bg-card ring-1 ring-foreground/15" />
+    <div className="relative pb-3" data-group={file.group_id}>
+      <div aria-hidden className="absolute inset-x-4 bottom-0 top-4 rounded-xl bg-muted ring-1 ring-foreground/15" />
+      <div aria-hidden className="absolute inset-x-2 bottom-1.5 top-2 rounded-xl bg-card ring-1 ring-foreground/20" />
       <div className="relative">{card}</div>
     </div>
   )
