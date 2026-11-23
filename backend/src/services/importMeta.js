@@ -17,6 +17,71 @@ function formatDate(info) {
  * Only fields the site actually provided are included (LinkedIn posts expose author and a
  * caption snippet but not the post date). Returns '' when there is nothing useful.
  */
+const UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
+const isLinkedIn = (info) => /(^|\.)linkedin\.com$/i.test(hostOf(info.webpage_url || info.original_url)) || info.extractor_key === 'LinkedIn'
+function hostOf(u) { try { return new URL(u).hostname } catch { return '' } }
+
+/** Pull the VideoObject / SocialMediaPosting JSON-LD out of a LinkedIn post page. */
+export function parseLinkedInPage(html) {
+  const out = {}
+  const blocks = [...String(html).matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)]
+  for (const m of blocks) {
+    let d
+    try { d = JSON.parse(m[1]) } catch { continue }
+    for (const node of Array.isArray(d) ? d : [d]) {
+      if (!node || !['VideoObject', 'SocialMediaPosting', 'Article'].includes(node['@type'])) continue
+      const who = node.creator || node.author
+      const person = Array.isArray(who) ? who[0] : who
+      if (person?.name) { out.uploader = person.name; if (person.url) out.uploader_url = person.url }
+      if (node.uploadDate || node.datePublished) out.date = node.uploadDate || node.datePublished
+      if (node.description || node.articleBody || node.headline) out.description = node.description || node.articleBody || node.headline
+      return out
+    }
+  }
+  return out
+}
+
+/** Last-resort author guess from LinkedIn page titles like "<caption> | <Author> | 31 comments" or "<Author> | <caption> | 21 likes | LinkedIn". */
+export function authorFromLinkedInTitle(title) {
+  if (!title) return ''
+  const parts = String(title).split(' | ').map((x) => x.trim()).filter(Boolean)
+  const hadSuffix = /^LinkedIn$/i.test(parts[parts.length - 1] || '')
+  const core = parts.filter((x) => !/^LinkedIn$/i.test(x) && !/^\d[\d.,]*[KkMm]?\s+(likes?|comments?|reactions?)/i.test(x))
+  if (core.length < 2) return ''
+  return hadSuffix ? core[0] : core[core.length - 1]
+}
+
+/**
+ * yt-dlp's LinkedIn extractor only reads JSON-LD of type SocialMediaPosting, but LinkedIn now serves a
+ * VideoObject whose author is `creator`, so uploader and date come back empty and the description is a
+ * truncated og:description. Fill those gaps from the page itself, then from the title.
+ */
+export async function enrichLinkedIn(info, fetchImpl = fetch) {
+  if (!isLinkedIn(info)) return info
+  const out = { ...info }
+  const url = info.webpage_url || info.original_url
+  try {
+    const res = await fetchImpl(url, { headers: { 'User-Agent': UA, 'Accept-Language': 'en' }, signal: AbortSignal.timeout(20000), redirect: 'follow' })
+    if (res.ok) {
+      const page = parseLinkedInPage(await res.text())
+      if (!clean(out.uploader) && page.uploader) { out.uploader = page.uploader; if (!out.uploader_url && page.uploader_url) out.uploader_url = page.uploader_url }
+      if (!out.upload_date && !Number.isFinite(out.timestamp) && page.date) {
+        const t = Date.parse(page.date)
+        if (!Number.isNaN(t)) out.timestamp = t / 1000
+      }
+      // The page's description is the full caption; og:description is a snippet ending in "… on LinkedIn".
+      if (page.description && (!clean(out.description) || page.description.length >= clean(out.description).length || /on LinkedIn$/.test(clean(out.description)))) {
+        out.description = page.description
+      }
+    }
+  } catch { /* offline / blocked: fall through to the title */ }
+  if (!clean(out.uploader)) {
+    const guess = authorFromLinkedInTitle(out.title)
+    if (guess) out.uploader = guess
+  }
+  return out
+}
+
 export function buildNotesFromInfo(info = {}) {
   const author = clean(info.uploader) || clean(info.channel) || clean(info.creator) || clean(info.uploader_id)
   const authorUrl = clean(info.uploader_url) || clean(info.channel_url)
@@ -49,7 +114,7 @@ export async function applyImportMeta(db, metaDir) {
   for (const name of names) {
     const full = path.join(metaDir, name)
     try {
-      const info = JSON.parse(await fs.readFile(full, 'utf8'))
+      const info = await enrichLinkedIn(JSON.parse(await fs.readFile(full, 'utf8')))
       const notes = buildNotesFromInfo(info)
       if (notes && info.id != null) {
         const r = db.prepare(

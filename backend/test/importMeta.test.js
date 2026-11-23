@@ -32,3 +32,26 @@ test('applyImportMeta fills empty notes only and removes the json', async () => 
   assert.match(t.db.prepare('SELECT notes FROM files WHERE id=?').get(a).notes, /Author: Ann/)
   assert.equal(t.db.prepare('SELECT notes FROM files WHERE id=?').get(b).notes, 'my own notes')
 })
+
+test('LinkedIn: author, date and full caption come from page JSON-LD (VideoObject.creator)', async () => {
+  const { enrichLinkedIn, buildNotesFromInfo, authorFromLinkedInTitle } = await import('../src/services/importMeta.js')
+  const ld = { '@type': 'VideoObject', uploadDate: '2026-11-09T14:30:56.520Z', description: 'Full caption here.', creator: { name: 'Marina K', url: 'https://www.linkedin.com/in/marina' } }
+  const html = `<html><script type="application/ld+json">${JSON.stringify(ld)}</script></html>`
+  const info = await enrichLinkedIn(
+    { extractor_key: 'LinkedIn', webpage_url: 'https://www.linkedin.com/feed/update/urn:li:activity:1/', title: 'x', description: 'Full… | 3 comments on LinkedIn' },
+    async () => ({ ok: true, text: async () => html }),
+  )
+  const notes = buildNotesFromInfo(info)
+  assert.match(notes, /^Author: Marina K \(https:\/\/www.linkedin.com\/in\/marina\)/)
+  assert.match(notes, /Posted: 2026-11-09/)
+  assert.match(notes, /Full caption here\.$/)
+
+  // offline: falls back to the title
+  const offline = await enrichLinkedIn(
+    { extractor_key: 'LinkedIn', webpage_url: 'https://www.linkedin.com/feed/update/x/', title: 'Quick recap. | Marina Kondratenko | 31 comments' },
+    async () => { throw new Error('offline') },
+  )
+  assert.equal(offline.uploader, 'Marina Kondratenko')
+  assert.equal(authorFromLinkedInTitle('John Szebegyinszki | Vucko | 21 likes · 1 comment | LinkedIn'), 'John Szebegyinszki')
+  assert.equal(authorFromLinkedInTitle('Just a title'), '')
+})
