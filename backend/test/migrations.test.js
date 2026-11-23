@@ -43,3 +43,34 @@ test('fresh database migrates without a backup', () => {
   assert.equal(db.pragma('user_version', { simple: true }), migrations.at(-1).version)
   db.close()
 })
+
+test('v3 database upgrades to accounts (v4), keeps every row and leaves login off', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'mb-mig4-'))
+  const dbPath = path.join(dir, 'motionbase.db')
+  try {
+    const old = new Database(dbPath)
+    applyBaseSchema(old)
+    for (const m of migrations.filter((x) => x.version <= 3)) {
+      old.transaction(() => { m.up(old); old.pragma(`user_version = ${m.version}`) })()
+    }
+    old.prepare("INSERT INTO files (filepath, filename, file_type, notes) VALUES ('/m/a.mp4','a.mp4','video','keep me')").run()
+    old.prepare("INSERT INTO api_tokens (name, token_hash, token_prefix) VALUES ('old', 'h', 'mb_abcd')").run()
+    old.prepare("INSERT INTO agent_activity (action) VALUES ('files.bulk')").run()
+    assert.equal(old.pragma('user_version', { simple: true }), 3)
+
+    runMigrations(old, { dbPath })
+    assert.equal(old.pragma('user_version', { simple: true }), 4)
+    const f = old.prepare('SELECT * FROM files WHERE id = 1').get()
+    assert.equal(f.notes, 'keep me')
+    assert.equal(f.uploaded_by, null)
+    assert.equal(f.upload_source, null)
+    assert.equal(old.prepare('SELECT user_id FROM api_tokens').get().user_id, null)
+    assert.equal(old.prepare('SELECT COUNT(*) AS n FROM agent_activity').get().n, 1)
+    assert.equal(old.prepare("SELECT value FROM settings WHERE key = 'auth_enabled'").get().value, 'false')
+    for (const tbl of ['users', 'sessions', 'file_events', 'audit_log']) assert.equal(old.prepare(`SELECT COUNT(*) AS n FROM ${tbl}`).get().n, 0)
+    assert.ok(readdirSync(dir).some((n) => n.includes('.pre-v4-') && n.endsWith('.bak')))
+    old.close()
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
