@@ -2,7 +2,7 @@ export const SORT_COLUMNS = { date_added: 'f.date_added', filename: 'f.filename'
 
 // Shared WHERE-clause builder for the file list and the filter-aware "next file" lookup.
 // Tag filtering is AND-across-categories, OR-within-category.
-export function buildFileFilter(db, { view = 'all', tags = '', search = '', favorites = '', untagged = '' } = {}) {
+export function buildFileFilter(db, { view = 'all', tags = '', search = '', favorites = '', untagged = '', folder = '', subfolders = '' } = {}) {
   const tagIds = tags ? String(tags).split(',').map(Number).filter(Boolean) : []
   const tagConditions = []
   const tagParams = []
@@ -27,7 +27,26 @@ export function buildFileFilter(db, { view = 'all', tags = '', search = '', favo
 
   const preParams = []
   if (search.trim()) {
-    preParams.push(`%${search.trim()}%`)
+    const like = `%${search.trim()}%`
+    preParams.push(like, like)
+  }
+
+  // folder=none -> unfiled; folder=<id> -> that folder (plus descendants with subfolders=1)
+  let folderCondition = null
+  const folderParams = []
+  if (folder === 'none') {
+    folderCondition = 'f.folder_id IS NULL'
+  } else if (folder !== '' && folder != null && Number.isInteger(Number(folder))) {
+    if (subfolders === '1' || subfolders === 1 || subfolders === true) {
+      folderCondition = `f.folder_id IN (
+        WITH RECURSIVE d(id) AS (
+          SELECT id FROM folders WHERE id = ?
+          UNION ALL SELECT x.id FROM folders x JOIN d ON x.parent_id = d.id
+        ) SELECT id FROM d)`
+    } else {
+      folderCondition = 'f.folder_id = ?'
+    }
+    folderParams.push(Number(folder))
   }
 
   // "Untagged" ignores the auto-applied Aspect Ratio category (is_system = 1) —
@@ -45,12 +64,13 @@ export function buildFileFilter(db, { view = 'all', tags = '', search = '', favo
     'f.is_missing = 0',
     view === 'inbox' ? 'f.needs_tagging = 1' : null,
     favorites === '1' ? 'f.is_favorite = 1' : null,
-    search.trim() ? 'f.filename LIKE ?' : null,
+    search.trim() ? '(f.filename LIKE ? OR f.notes LIKE ?)' : null,
+    folderCondition,
     untaggedCondition,
     ...tagConditions,
   ].filter(Boolean).join(' AND ')
 
-  return { where, params: [...preParams, ...tagParams] }
+  return { where, params: [...preParams, ...folderParams, ...tagParams] }
 }
 
 // Attach full tag objects (`tags`) to each file row. Returns new objects.

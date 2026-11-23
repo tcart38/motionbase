@@ -10,6 +10,7 @@ import categoriesRouter from './routes/categories.js'
 import settingsRouter from './routes/settings.js'
 import importRouter from './routes/import.js'
 import uploadRouter from './routes/upload.js'
+import foldersRouter from './routes/folders.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -29,6 +30,7 @@ export function createApp({ serveFrontend = config.isProd } = {}) {
   app.use('/api/settings', settingsRouter)
   app.use('/api/import', importRouter)
   app.use('/api/upload', uploadRouter)
+  app.use('/api/folders', foldersRouter)
 
   // Serve built frontend in production (Docker)
   if (serveFrontend) {

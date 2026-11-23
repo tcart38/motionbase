@@ -1,9 +1,10 @@
 import { existsSync } from 'fs'
 import { applyBaseSchema, seed } from './schema.js'
+import * as m001 from './migrations/001-folders-review-source.js'
 
 // Ordered, additive-only migrations. Each runs in its own transaction and bumps
 // PRAGMA user_version. Never edit a released migration; append a new one.
-export const migrations = []
+export const migrations = [m001]
 
 export function runMigrations(db, { dbPath, backup = true } = {}) {
   const hadSchema = !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='files'").get()

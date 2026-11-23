@@ -16,14 +16,15 @@ router.get('/', (req, res) => {
 })
 
 router.post('/', (req, res) => {
-  const { name } = req.body
+  const { name, description = null, selection = 'multi' } = req.body
   if (!name?.trim()) return res.status(400).json({ error: 'name is required' })
+  if (!['single', 'multi'].includes(selection)) return res.status(400).json({ error: "selection must be 'single' or 'multi'" })
 
   const db = getDb()
   try {
     const { lastInsertRowid } = db.prepare(
-      'INSERT INTO tag_categories (name, is_system) VALUES (?, 0)'
-    ).run(name.trim())
+      'INSERT INTO tag_categories (name, is_system, description, selection) VALUES (?, 0, ?, ?)'
+    ).run(name.trim(), description?.trim() || null, selection)
     res.status(201).json(db.prepare('SELECT * FROM tag_categories WHERE id = ?').get(lastInsertRowid))
   } catch (err) {
     if (err.message.includes('UNIQUE')) return res.status(409).json({ error: 'Category name already exists' })
@@ -36,11 +37,13 @@ router.patch('/:id', (req, res) => {
   const cat = db.prepare('SELECT * FROM tag_categories WHERE id = ?').get(req.params.id)
   if (!cat) return res.status(404).json({ error: 'Not found' })
 
-  const { name } = req.body
-  if (!name?.trim()) return res.status(400).json({ error: 'name is required' })
+  const { name = cat.name, description = cat.description, selection = cat.selection } = req.body
+  if (!String(name).trim()) return res.status(400).json({ error: 'name is required' })
+  if (!['single', 'multi'].includes(selection)) return res.status(400).json({ error: "selection must be 'single' or 'multi'" })
 
   try {
-    db.prepare('UPDATE tag_categories SET name = ? WHERE id = ?').run(name.trim(), cat.id)
+    db.prepare('UPDATE tag_categories SET name = ?, description = ?, selection = ? WHERE id = ?')
+      .run(String(name).trim(), description?.trim?.() || null, selection, cat.id)
     res.json(db.prepare('SELECT * FROM tag_categories WHERE id = ?').get(cat.id))
   } catch (err) {
     if (err.message.includes('UNIQUE')) return res.status(409).json({ error: 'Category name already exists' })

@@ -1,9 +1,11 @@
 import { Router } from 'express'
-import { createReadStream, statSync, renameSync, existsSync } from 'fs'
+import { createReadStream, statSync, renameSync, existsSync, rmSync } from 'fs'
 import path from 'path'
 import { getDb } from '../db/index.js'
 import { SORT_COLUMNS, buildFileFilter, attachTags, getFileWithTags } from '../services/fileQuery.js'
-import { applyFileUpdate } from '../services/fileMutations.js'
+import { config } from '../config.js'
+import { HttpError } from '../services/errors.js'
+import { applyFileUpdate, validateChanges } from '../services/fileMutations.js'
 
 const router = Router()
 
@@ -20,6 +22,8 @@ router.get('/', (req, res) => {
     search = '',
     favorites = '',
     untagged = '',
+    folder = '',
+    subfolders = '',
   } = req.query
 
   const sortCol = SORT_COLUMNS[sort] || 'f.date_added'
@@ -28,7 +32,7 @@ router.get('/', (req, res) => {
   const offset = (Math.max(1, parseInt(page, 10)) - 1) * Math.max(1, parseInt(limit, 10))
   const limitVal = Math.max(1, parseInt(limit, 10))
 
-  const { where, params: allParams } = buildFileFilter(db, { view, tags, search, favorites, untagged })
+  const { where, params: allParams } = buildFileFilter(db, { view, tags, search, favorites, untagged, folder, subfolders })
 
   const countSql = `SELECT COUNT(*) AS total FROM files f WHERE ${where}`
   const { total } = db.prepare(countSql).get(...allParams)
@@ -45,6 +49,33 @@ router.get('/', (req, res) => {
   res.json({ files, total, page: parseInt(page, 10), limit: limitVal })
 })
 
+// POST /api/files/bulk
+// { file_ids: [..<=500], add_tag_ids, remove_tag_ids, folder_id (null = unfile), is_favorite, mark_reviewed }
+// Applied atomically: either every file is updated or none.
+router.post('/bulk', (req, res) => {
+  const db = getDb()
+  const { file_ids, add_tag_ids, remove_tag_ids, folder_id, is_favorite, mark_reviewed } = req.body
+  if (!Array.isArray(file_ids) || file_ids.length === 0) throw new HttpError(400, 'file_ids must be a non-empty array')
+  if (file_ids.length > 500) throw new HttpError(413, 'At most 500 files per request')
+  const ids = [...new Set(file_ids.map(Number))]
+  if (ids.some((n) => !Number.isInteger(n))) throw new HttpError(400, 'file_ids must be integers')
+
+  const changes = { add_tag_ids, remove_tag_ids, folder_id, is_favorite, mark_reviewed: mark_reviewed || undefined }
+  validateChanges(db, changes)
+
+  const updated = db.transaction(() => {
+    let n = 0
+    for (const id of ids) {
+      const file = db.prepare('SELECT * FROM files WHERE id = ?').get(id)
+      if (!file) throw new HttpError(404, `File ${id} not found`)
+      applyFileUpdate(db, file, changes)
+      n++
+    }
+    return n
+  })()
+  res.json({ updated })
+})
+
 router.get('/:id', (req, res) => {
   const file = getFileWithTags(getDb(), req.params.id)
   if (!file) return res.status(404).json({ error: 'Not found' })
@@ -54,12 +85,12 @@ router.get('/:id', (req, res) => {
 // GET /api/files/:id/next — id of the next file in the current filtered/sorted view (wraps around)
 router.get('/:id/next', (req, res) => {
   const db = getDb()
-  const { tags = '', sort = 'date_added', order = 'desc', search = '', favorites = '', untagged = '' } = req.query
+  const { tags = '', sort = 'date_added', order = 'desc', search = '', favorites = '', untagged = '', folder = '', subfolders = '' } = req.query
 
   const sortCol = SORT_COLUMNS[sort] || 'f.date_added'
   const sortDir = order === 'asc' ? 'ASC' : 'DESC'
 
-  const { where, params } = buildFileFilter(db, { view: 'all', tags, search, favorites, untagged })
+  const { where, params } = buildFileFilter(db, { view: 'all', tags, search, favorites, untagged, folder, subfolders })
 
   const ids = db.prepare(`
     SELECT f.id FROM files f WHERE ${where} ORDER BY ${sortCol} ${sortDir}, f.id ${sortDir}
@@ -79,7 +110,7 @@ router.patch('/:id', (req, res) => {
   const file = db.prepare('SELECT * FROM files WHERE id = ?').get(req.params.id)
   if (!file) return res.status(404).json({ error: 'Not found' })
 
-  const { needs_tagging, tag_ids, filename, is_favorite, notes } = req.body
+  const { needs_tagging, tag_ids, filename, is_favorite, notes, folder_id, mark_reviewed } = req.body
 
   if (filename !== undefined) {
     const newName = String(filename).trim()
@@ -96,9 +127,9 @@ router.patch('/:id', (req, res) => {
     }
   }
 
-  db.transaction(() => {
-    applyFileUpdate(db, file, { needs_tagging, tag_ids, is_favorite, notes })
-  })()
+  const changes = { needs_tagging, tag_ids, is_favorite, notes, folder_id, mark_reviewed }
+  validateChanges(db, changes)
+  db.transaction(() => applyFileUpdate(db, file, changes))()
 
   res.json(getFileWithTags(db, file.id))
 })
@@ -109,6 +140,9 @@ router.delete('/:id', (req, res) => {
   const file = db.prepare('SELECT * FROM files WHERE id = ?').get(req.params.id)
   if (!file) return res.status(404).json({ error: 'Not found' })
   db.prepare('DELETE FROM files WHERE id = ?').run(file.id)
+  // Remove derived artifacts (thumbnail + cached frames); the media file itself is untouched.
+  try { rmSync(file.thumbnail_path || path.join(config.thumbnailsDir, `${file.id}.jpg`), { force: true }) } catch {}
+  try { rmSync(path.join(config.framesDir, String(file.id)), { recursive: true, force: true }) } catch {}
   res.json({ deleted: true })
 })
 

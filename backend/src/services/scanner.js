@@ -150,5 +150,5 @@ function applyAspectRatioTag(db, fileId, ratioName) {
   if (!cat) return
   const tag = db.prepare('SELECT id FROM tags WHERE category_id = ? AND name = ?').get(cat.id, ratioName)
   if (!tag) return
-  db.prepare('INSERT OR IGNORE INTO file_tags (file_id, tag_id) VALUES (?, ?)').run(fileId, tag.id)
+  db.prepare("INSERT OR IGNORE INTO file_tags (file_id, tag_id, source) VALUES (?, ?, 'system')").run(fileId, tag.id)
 }
