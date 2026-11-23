@@ -1,7 +1,7 @@
-import React from 'react'
-import { NavLink, Outlet, useLocation, useSearchParams } from 'react-router-dom'
+import React, { useState } from 'react'
+import { NavLink, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  RiFilmLine, RiInboxLine, RiAddCircleLine, RiSettings3Line, RiRefreshLine,
+  RiFilmLine, RiInboxLine, RiAddCircleLine, RiSettings3Line, RiRefreshLine, RiSearchLine, RiKeyboardLine,
 } from '@remixicon/react'
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent,
@@ -9,6 +9,9 @@ import {
   SidebarMenuItem, SidebarProvider, SidebarRail, SidebarTrigger,
 } from '@/components/ui/sidebar.jsx'
 import FolderTree from '@/components/FolderTree.jsx'
+import CommandPalette from '@/components/CommandPalette.jsx'
+import ShortcutsDialog from '@/components/ShortcutsDialog.jsx'
+import { useHotkeys } from '@/hooks/useHotkeys.js'
 import { useScan } from '@/hooks/useScan.js'
 import { useFileCounts } from '@/hooks/useInboxCount.js'
 
@@ -25,6 +28,17 @@ export default function Layout() {
   const inboxCount = counts?.inbox ?? 0
   const { pathname } = useLocation()
   const [params] = useSearchParams()
+  const navigate = useNavigate()
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  useHotkeys({
+    'mod+k': () => setPaletteOpen((o) => !o),
+    '?': () => setShortcutsOpen(true),
+    'g l': () => navigate('/library'),
+    'g i': () => navigate('/inbox'),
+    'g a': () => navigate('/add-media'),
+    'g s': () => navigate('/settings'),
+  })
   const inFolder = pathname === '/library' && params.has('folder')
 
   return (
@@ -76,6 +90,18 @@ export default function Layout() {
         <SidebarFooter>
           <SidebarMenu>
             <SidebarMenuItem>
+              <SidebarMenuButton tooltip="Search and commands" onClick={() => setPaletteOpen(true)}>
+                <RiSearchLine />
+                <span>Search…</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton tooltip="Keyboard shortcuts" onClick={() => setShortcutsOpen(true)}>
+                <RiKeyboardLine />
+                <span>Shortcuts</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
               <SidebarMenuButton tooltip="Scan now" onClick={scan} disabled={scanning}>
                 <RiRefreshLine className={scanning ? 'animate-spin' : ''} />
                 <span>{scanning ? 'Scanning…' : 'Scan Now'}</span>
@@ -95,6 +121,14 @@ export default function Layout() {
           <Outlet />
         </main>
       </SidebarInset>
+
+      <CommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        onScan={scan}
+        onShowShortcuts={() => setShortcutsOpen(true)}
+      />
+      <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
     </SidebarProvider>
   )
 }
