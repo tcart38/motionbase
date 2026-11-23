@@ -13,6 +13,7 @@ import CommandPalette from '@/components/CommandPalette.jsx'
 import ShortcutsDialog from '@/components/ShortcutsDialog.jsx'
 import { useHotkeys } from '@/hooks/useHotkeys.js'
 import { useScan } from '@/hooks/useScan.js'
+import UserMenu from '@/components/account/UserMenu.jsx'
 import { useFileCounts } from '@/hooks/useInboxCount.js'
 
 const navItems = [
@@ -115,6 +116,7 @@ export default function Layout() {
                 <span>{scanning ? 'Scanning…' : 'Scan Now'}</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
+            <UserMenu />
           </SidebarMenu>
         </SidebarFooter>
       </Sidebar>

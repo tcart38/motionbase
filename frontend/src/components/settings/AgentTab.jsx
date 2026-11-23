@@ -16,6 +16,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog.jsx'
+import { useAuth } from '@/context/AuthContext.jsx'
 import AgentDocs from '@/components/settings/AgentDocs.jsx'
 import ConfirmAction from '@/components/ConfirmAction.jsx'
 
@@ -24,6 +25,7 @@ const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`
 const when = (s) => (s ? new Date(s.replace(' ', 'T') + 'Z').toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'never')
 
 function ConfirmationCard() {
+  const { isAdmin } = useAuth()
   const qc = useQueryClient()
   const { data } = useQuery({ queryKey: ['settings'], queryFn: getSettings })
   const on = data?.agent_requires_confirmation === 'true'
@@ -40,15 +42,17 @@ function ConfirmationCard() {
           <p className="text-xs text-muted-foreground">
             When on, files an agent has tagged stay in your Inbox under "Needs review" until you confirm them.
             When off, agent changes count as reviewed straight away (you can still revert them below).
+            {!isAdmin && ' Only an administrator can change this.'}
           </p>
         </div>
-        <Switch id="agent-confirm" checked={on} disabled={!data || m.isPending} onCheckedChange={(v) => m.mutate(v)} />
+        <Switch id="agent-confirm" checked={on} disabled={!data || m.isPending || !isAdmin} onCheckedChange={(v) => m.mutate(v)} />
       </CardContent>
     </Card>
   )
 }
 
 function TokenCard() {
+  const { enabled, isAdmin } = useAuth()
   const qc = useQueryClient()
   const { data: tokens, isLoading } = useQuery({ queryKey: ['tokens'], queryFn: getTokens })
   const [name, setName] = useState('')
@@ -75,6 +79,9 @@ function TokenCard() {
         <CardDescription>
           Agents send a token as <code>Authorization: Bearer mb_…</code> to <code>/api/agent/v1</code>.
           See docs/AGENT_API.md. Tokens are shown once and stored hashed.
+          {enabled && (isAdmin
+            ? ' Each token belongs to the person who created it; as an administrator you see everyone\'s.'
+            : ' Tokens belong to you and show only to you. Changes an agent makes are credited to you.')}
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4">
@@ -108,6 +115,12 @@ function TokenCard() {
                     <code>{t.token_prefix}…</code> · created {when(t.created_at)} · last used {when(t.last_used_at)}
                   </p>
                 </div>
+                {enabled && isAdmin && (
+                  <div className="w-36 shrink-0 text-xs" aria-label="Owner">
+                    <span className="mr-1 text-muted-foreground">Owner</span>
+                    {t.owner ? <span className="font-medium">{t.owner.display_name}</span> : <span className="text-muted-foreground">none (made before login)</span>}
+                  </div>
+                )}
                 {!t.revoked_at && (
                   <Button variant="destructive" size="sm" aria-label={`Revoke token ${t.name}`}
                     onClick={() => setConfirm({
@@ -142,6 +155,7 @@ function TokenCard() {
 }
 
 function ActivityCard() {
+  const { isAdmin } = useAuth()
   const qc = useQueryClient()
   const { data, isLoading } = useQuery({ queryKey: ['activity'], queryFn: () => getActivity({ limit: 50 }) })
   const [confirm, setConfirm] = useState(null)
@@ -184,7 +198,7 @@ function ActivityCard() {
                 </div>
                 {a.reverted_at ? (
                   <Badge variant="secondary">reverted</Badge>
-                ) : a.revertable ? (
+                ) : a.revertable && isAdmin ? (
                   <Button variant="outline" size="sm"
                     onClick={() => setConfirm({
                       title: 'Revert this change?',

@@ -13,7 +13,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Progress } from '@/components/ui/progress.jsx'
 import { Spinner } from '@/components/ui/spinner.jsx'
 import { cn } from '@/lib/utils.js'
-import { getFiles, thumbnailUrl } from '@/api/client.js'
+import { LOGIN_REQUIRED_EVENT, getFiles, parseError, thumbnailUrl } from '@/api/client.js'
 import { useFileCounts } from '@/hooks/useInboxCount.js'
 
 let uploadId = 0
@@ -43,6 +43,7 @@ function FileUpload({ onUploaded }) {
     xhr.upload.onprogress = (e) => { if (e.lengthComputable) patch(id, { progress: Math.round((e.loaded / e.total) * 100) }) }
     xhr.onload = () => {
       if (xhr.status === 200) { patch(id, { status: 'done', progress: 100 }); onUploaded() }
+      else if (xhr.status === 401) { window.dispatchEvent(new Event(LOGIN_REQUIRED_EVENT)); patch(id, { status: 'error', message: 'Signed out. Sign in again' }) }
       else patch(id, { status: 'error', message: xhr.status === 400 ? 'Unsupported file type' : `Upload failed (${xhr.status})` })
     }
     xhr.onerror = () => patch(id, { status: 'error', message: 'Network error' })
@@ -141,8 +142,8 @@ function UrlImport({ onImported }) {
         body: JSON.stringify({ url: trimmed }),
       })
       if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: res.statusText }))
-        setError(err.error || 'Import failed')
+        const err = await parseError(res)
+        setError(err.message || 'Import failed')
         return
       }
       const reader = res.body.getReader()

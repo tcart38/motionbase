@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input.jsx'
 import { Label } from '@/components/ui/label.jsx'
 import { Textarea } from '@/components/ui/textarea.jsx'
 import { Badge } from '@/components/ui/badge.jsx'
+import { useAuth } from '@/context/AuthContext.jsx'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx'
 
 function ScanCard({ settings }) {
@@ -79,10 +80,17 @@ function CookiesCard() {
 
 export default function GeneralTab() {
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: getSettings })
+  const { isAdmin } = useAuth()
   return (
     <div className="grid gap-4">
-      <ScanCard settings={settings} />
-      <CookiesCard />
+      {isAdmin ? (
+        <>
+          <ScanCard settings={settings} />
+          <CookiesCard />
+        </>
+      ) : (
+        <p className="text-xs text-muted-foreground">Scan and URL import settings are managed by an administrator.</p>
+      )}
       <p className="text-xs text-muted-foreground">MotionBase {settings?.version ? `v${settings.version}` : ''}</p>
     </div>
   )

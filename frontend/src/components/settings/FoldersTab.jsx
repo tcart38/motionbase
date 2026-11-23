@@ -5,6 +5,7 @@ import {
   RiFolderLine, RiFolderAddLine, RiPencilLine, RiDeleteBinLine, RiFolderTransferLine, RiHardDriveLine,
 } from '@remixicon/react'
 import { importFoldersFromDisk } from '@/api/client.js'
+import { useAuth } from '@/context/AuthContext.jsx'
 import { useFolders, useFolderMutations } from '@/hooks/useFolders.js'
 import { buildTree, flattenTree, descendantIds } from '@/lib/folders.js'
 import { Button } from '@/components/ui/button.jsx'
@@ -21,6 +22,7 @@ export default function FoldersTab() {
   const { data, isLoading } = useFolders()
   const { update, remove } = useFolderMutations()
   const qc = useQueryClient()
+  const { isAdmin } = useAuth()
   const [dialog, setDialog] = useState(null) // { type, folder?, parent? }
   const [confirm, setConfirm] = useState(null)
   const folders = data?.folders ?? []
@@ -47,13 +49,17 @@ export default function FoldersTab() {
         <CardContent className="grid gap-3">
           <div className="flex flex-wrap gap-2">
             <Button onClick={() => setDialog({ type: 'create' })}><RiFolderAddLine /> New folder</Button>
-            <Button variant="outline" disabled={importDisk.isPending} onClick={() => importDisk.mutate({})}>
-              <RiHardDriveLine /> {importDisk.isPending ? 'Importing…' : 'Import from disk structure'}
-            </Button>
+            {isAdmin && (
+              <Button variant="outline" disabled={importDisk.isPending} onClick={() => importDisk.mutate({})}>
+                <RiHardDriveLine /> {importDisk.isPending ? 'Importing…' : 'Import from disk structure'}
+              </Button>
+            )}
           </div>
-          <p className="text-xs text-muted-foreground">
-            Importing mirrors sub-directories of the media folder into folders and files any unfiled media there.
-          </p>
+          {isAdmin && (
+            <p className="text-xs text-muted-foreground">
+              Importing mirrors sub-directories of the media folder into folders and files any unfiled media there.
+            </p>
+          )}
         </CardContent>
       </Card>
 

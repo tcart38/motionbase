@@ -179,7 +179,7 @@ When finished, report counts: reviewed, left pending (with reasons), tags create
             </div>
             <div className="rounded-lg border p-3 text-muted-foreground">
               <p className="mb-1 font-medium text-foreground">Safety</p>
-              Agents authenticate with a token you create here (shown once, stored hashed). Batches are all-or-nothing and can be previewed with <code>dry_run</code>.
+              Agents authenticate with a token you create here (shown once, stored hashed). When login is on, a token belongs to the signed-in user who created it: changes an agent makes are credited to that user (shown as the token name with an AI badge), and the token stops working if that user is disabled. Batches are all-or-nothing and can be previewed with <code>dry_run</code>.
               With "Require my confirmation" on, AI-reviewed videos wait in your Inbox until you accept them. The rest of MotionBase has no login, so keep it on a trusted network or behind a reverse proxy.
             </div>
           </TabsContent>

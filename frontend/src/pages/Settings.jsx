@@ -5,6 +5,7 @@ import GeneralTab from '@/components/settings/GeneralTab.jsx'
 import AppearanceTab from '@/components/settings/AppearanceTab.jsx'
 import TaxonomyTab from '@/components/settings/TaxonomyTab.jsx'
 import FoldersTab from '@/components/settings/FoldersTab.jsx'
+import AccountsTab from '@/components/settings/AccountsTab.jsx'
 import AgentTab from '@/components/settings/AgentTab.jsx'
 
 const TABS = [
@@ -13,6 +14,7 @@ const TABS = [
   { value: 'taxonomy', label: 'Taxonomy', Component: TaxonomyTab },
   { value: 'folders', label: 'Folders', Component: FoldersTab },
   { value: 'agent', label: 'Agent API', Component: AgentTab },
+  { value: 'accounts', label: 'Accounts', Component: AccountsTab },
 ]
 
 export default function Settings() {

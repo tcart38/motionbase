@@ -8,6 +8,7 @@ import { Spinner } from '@/components/ui/spinner.jsx'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty.jsx'
 import ConfirmAction from '@/components/ConfirmAction.jsx'
 import { getFiles, purgeFiles, thumbnailUrl } from '@/api/client.js'
+import { useAuth } from '@/context/AuthContext.jsx'
 import { useBulkActions } from '@/hooks/useBulkActions.js'
 import { formatDuration } from '@/components/MediaCard.jsx'
 
@@ -16,6 +17,7 @@ const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`
 export default function Trash() {
   const qc = useQueryClient()
   const bulk = useBulkActions()
+  const { isAdmin } = useAuth()
   const [selected, setSelected] = useState(() => new Set())
   const [confirm, setConfirm] = useState(null)
 
@@ -65,13 +67,13 @@ export default function Trash() {
           <Button variant="outline" disabled={!files.length} onClick={restore}>
             <RiArrowGoBackLine data-icon="inline-start" /> {chosen.length ? `Restore ${chosen.length}` : 'Restore all'}
           </Button>
-          <Button variant="destructive" disabled={!files.length} onClick={() => (chosen.length ? purge(chosen, false) : purge(files, true))}>
+          {isAdmin && <Button variant="destructive" disabled={!files.length} onClick={() => (chosen.length ? purge(chosen, false) : purge(files, true))}>
             <RiDeleteBinLine data-icon="inline-start" /> {chosen.length ? `Delete ${chosen.length} forever` : 'Empty Trash'}
-          </Button>
+          </Button>}
         </div>
       </div>
       <p className="text-xs text-muted-foreground">
-        Deleted videos stay on disk and are hidden everywhere else (including from AI agents) until you restore them or delete them forever.
+        Deleted videos stay on disk and are hidden everywhere else (including from AI agents) until you restore them{isAdmin ? ' or delete them forever' : ' (only an administrator can delete forever)'}.
       </p>
 
       {isLoading ? (
@@ -98,7 +100,7 @@ export default function Trash() {
                 <div className="flex items-center gap-1 p-2">
                   <span className="min-w-0 flex-1 truncate text-xs" title={f.filename}>{f.filename}</span>
                   <Button size="icon-sm" variant="ghost" aria-label={`Restore ${f.filename}`} title="Restore" onClick={() => bulk.restoreFiles([f])}><RiArrowGoBackLine /></Button>
-                  <Button size="icon-sm" variant="ghost" className="text-destructive" aria-label={`Delete ${f.filename} forever`} title="Delete forever" onClick={() => purge([f], false)}><RiDeleteBinLine /></Button>
+                  {isAdmin && <Button size="icon-sm" variant="ghost" className="text-destructive" aria-label={`Delete ${f.filename} forever`} title="Delete forever" onClick={() => purge([f], false)}><RiDeleteBinLine /></Button>}
                 </div>
               </li>
             )
