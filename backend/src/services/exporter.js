@@ -229,6 +229,9 @@ export function countingRead(file, signal, onBytes) {
     transform(chunk, _enc, cb) { onBytes(chunk.length); cb(null, chunk) },
   })
   rs.on('error', (e) => counter.destroy(e))
+  // After an abort the archive no longer listens; without this a late 'error' would be an uncaught exception
+  // (it would crash the server when a client drops a download).
+  counter.on('error', () => {})
   return rs.pipe(counter)
 }
 
