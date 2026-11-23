@@ -42,7 +42,7 @@ function Tip({ label, keys, children }) {
 /**
  * Video player. Fills its parent (give the parent a height) and letterboxes the clip.
  * Shortcuts (when no text field or menu has focus):
- *   Space / K play-pause · M mute · F fullscreen · , and . step a frame · ← → seek 5 s
+ *   Space / K play-pause · M mute · F fullscreen · , and . or PgUp/PgDn step a frame · ← → seek 5 s
  *   [ and ] slower / faster · L loop
  * `reservedKeys` (lowercase) lists keys the host page binds itself, which the player then ignores.
  */
@@ -135,7 +135,7 @@ export default function VideoPlayer({ file, className, autoPlay = true, reserved
       }
       const handlers = {
         ' ': togglePlay, k: togglePlay, m: toggleMute, f: toggleFullscreen, l: () => setLoop((v) => !v),
-        ',': () => stepFrame(-1), '.': () => stepFrame(1),
+        ',': () => stepFrame(-1), '.': () => stepFrame(1), PageUp: () => stepFrame(-1), PageDown: () => stepFrame(1),
         ArrowLeft: () => seekBy(e.shiftKey ? -1 : -5), ArrowRight: () => seekBy(e.shiftKey ? 1 : 5),
         '[': () => stepRate(-1), ']': () => stepRate(1),
       }
@@ -206,7 +206,7 @@ export default function VideoPlayer({ file, className, autoPlay = true, reserved
         />
 
         <div className="flex flex-wrap items-center gap-0.5 text-white">
-          <Tip label="Previous frame" keys=",">
+          <Tip label="Previous frame" keys="PgUp">
             <Button variant="ghost" size="icon" className="text-white hover:bg-white/15 hover:text-white" onClick={() => stepFrame(-1)} aria-label="Previous frame"><RiSkipBackMiniFill /></Button>
           </Tip>
           <Tip label={playing ? 'Pause' : 'Play'} keys="Space">
@@ -214,7 +214,7 @@ export default function VideoPlayer({ file, className, autoPlay = true, reserved
               {playing ? <RiPauseFill /> : <RiPlayFill />}
             </Button>
           </Tip>
-          <Tip label="Next frame" keys=".">
+          <Tip label="Next frame" keys="PgDn">
             <Button variant="ghost" size="icon" className="text-white hover:bg-white/15 hover:text-white" onClick={() => stepFrame(1)} aria-label="Next frame"><RiSkipForwardMiniFill /></Button>
           </Tip>
           <span className="ml-1.5 font-mono text-xs tabular-nums text-white/70" aria-label="Playback position">
