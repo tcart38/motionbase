@@ -20,7 +20,7 @@ router.get('/', (req, res) => {
 
 // POST /api/tags
 router.post('/', (req, res) => {
-  const { category_id, name } = req.body
+  const { category_id, name, description = null } = req.body
   if (!category_id || !name?.trim()) {
     return res.status(400).json({ error: 'category_id and name are required' })
   }
@@ -31,8 +31,8 @@ router.post('/', (req, res) => {
 
   try {
     const { lastInsertRowid } = db.prepare(
-      'INSERT INTO tags (category_id, name) VALUES (?, ?)'
-    ).run(category_id, name.trim())
+      'INSERT INTO tags (category_id, name, description) VALUES (?, ?, ?)'
+    ).run(category_id, name.trim(), description?.trim() || null)
     res.status(201).json(db.prepare(`
       SELECT t.*, c.name AS category_name FROM tags t
       JOIN tag_categories c ON c.id = t.category_id WHERE t.id = ?
@@ -48,11 +48,12 @@ router.patch('/:id', (req, res) => {
   const tag = db.prepare('SELECT * FROM tags WHERE id = ?').get(req.params.id)
   if (!tag) return res.status(404).json({ error: 'Not found' })
 
-  const { name } = req.body
-  if (!name?.trim()) return res.status(400).json({ error: 'name is required' })
+  const { name = tag.name, description = tag.description } = req.body
+  if (!String(name).trim()) return res.status(400).json({ error: 'name is required' })
 
   try {
-    db.prepare('UPDATE tags SET name = ? WHERE id = ?').run(name.trim(), tag.id)
+    db.prepare('UPDATE tags SET name = ?, description = ? WHERE id = ?')
+      .run(String(name).trim(), description?.trim?.() || null, tag.id)
     res.json(db.prepare(`
       SELECT t.*, c.name AS category_name FROM tags t
       JOIN tag_categories c ON c.id = t.category_id WHERE t.id = ?

@@ -1,0 +1,19 @@
+{
+  "name": "motionbase-mcp",
+  "version": "2.0.0",
+  "description": "MCP server that lets any MCP-capable AI tool triage a MotionBase library through its Agent API",
+  "type": "module",
+  "bin": {
+    "motionbase-mcp": "./index.js"
+  },
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --test test/*.test.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "zod": "^4.6.7"
+  }
+}

@@ -1,0 +1,17 @@
+# Design notes
+
+Applied with `npx shadcn@latest init --preset b7CSfRACu --template vite` (Vite chosen deliberately, not Next).
+
+What preset `b7CSfRACu` resolved to (from `components.json` and the generated CSS):
+
+- Style: `base-mira` (compact "mira" look: `text-xs/relaxed` controls, small radii, `--radius: 0.625rem`)
+- Base library: Base UI (`@base-ui/react`), not Radix. Components use `render={...}` props instead of Radix `asChild`.
+- Icon library: Remix Icon (`@remixicon/react`, `Ri*Line` icons). `lucide-react` has been removed.
+- Base colour: `mist` (cool blue-grey neutrals, sky-blue primary), CSS variables in OKLCH, light and dark sets in `src/index.css`
+- Font: Inter Variable via `@fontsource-variable/inter` (`--font-sans`, `--font-heading` = sans)
+- Menu colour/accent: `default` / `subtle`
+- Other: Tailwind v4 (CSS-first, `@tailwindcss/vite`), `tw-animate-css`, `shadcn/tailwind.css`, no RSC, JS not TS (`tsx: false`, `jsconfig.json`, alias `@` -> `src`).
+
+Notes:
+- `src/lib/utils.js` exports `cn` (clsx + tailwind-merge).
+- Theme: `ThemeContext` stores `light | dark | system` under localStorage `theme` and toggles `.dark` on `<html>`. Sonner uses it.

@@ -1,406 +1,327 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { Check, ChevronRight, Download, Upload, X } from 'lucide-react'
-import { getFiles, patchFile, getTags, getCategories } from '../api/client.js'
-import { useNavigate } from 'react-router-dom'
-import { thumbnailUrl } from '../api/client.js'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  RiInboxLine, RiCheckDoubleLine, RiSkipForwardLine, RiArrowGoBackLine, RiFolderTransferLine, RiFolderLine,
+  RiImageLine, RiArrowUpSLine, RiArrowDownSLine, RiSparklingLine,
+} from '@remixicon/react'
+import { Button } from '@/components/ui/button.jsx'
+import { Badge } from '@/components/ui/badge.jsx'
+import { Kbd } from '@/components/ui/kbd.jsx'
+import { ScrollArea } from '@/components/ui/scroll-area.jsx'
+import { Skeleton } from '@/components/ui/skeleton.jsx'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group.jsx'
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty.jsx'
+import VideoPlayer from '@/components/VideoPlayer.jsx'
+import TagEditor from '@/components/TagEditor.jsx'
+import NotesEditor, { SaveIndicator } from '@/components/NotesEditor.jsx'
+import MoveToFolderDialog from '@/components/MoveToFolderDialog.jsx'
+import QueueList from '@/components/inbox/QueueList.jsx'
+import QuickTagDialog from '@/components/inbox/QuickTagDialog.jsx'
+import { getFiles, streamUrl, thumbnailUrl } from '@/api/client.js'
+import { useTaxonomy } from '@/hooks/useTaxonomy.js'
+import { useFolders } from '@/hooks/useFolders.js'
+import { useBulkActions } from '@/hooks/useBulkActions.js'
+import { useFileCounts } from '@/hooks/useInboxCount.js'
+import { folderPath } from '@/lib/folders.js'
+import { uploaderLabel } from '@/lib/people.js'
+import { useAuth } from '@/context/AuthContext.jsx'
 
-function formatDuration(secs) {
-  if (!secs) return null
-  const m = Math.floor(secs / 60)
-  const s = Math.floor(secs % 60)
-  return `${m}:${s.toString().padStart(2, '0')}`
-}
+const PAGE_SIZE = 50
+const FILTERS = [
+  { value: 'all', label: 'All', status: undefined },
+  { value: 'ai', label: 'AI to confirm', status: 'needs_review' },
+  { value: 'new', label: 'Untouched', status: 'pending' },
+]
+// Keys the Inbox binds; the video player must leave these alone.
+const RESERVED = ['k', 'm', 'l']
 
-function InlineTagPicker({ file, categories, allTags, onSaved }) {
-  const [selectedIds, setSelectedIds] = useState(new Set(file.tags.map((t) => t.id)))
-  const [saving, setSaving] = useState(false)
-
-  const toggle = (id) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
-      return next
-    })
-  }
-
-  const handleSave = async () => {
-    setSaving(true)
-    try {
-      const updated = await patchFile(file.id, { tag_ids: [...selectedIds], needs_tagging: 0 })
-      onSaved(updated)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div className="mt-3 space-y-3">
-      {categories.map((cat) => {
-        const catTags = allTags.filter((t) => t.category_id === cat.id)
-        if (!catTags.length) return null
-        return (
-          <div key={cat.id}>
-            <p className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider font-medium mb-1.5">{cat.name}</p>
-            <div className="flex flex-wrap gap-1.5">
-              {catTags.map((tag) => {
-                const active = selectedIds.has(tag.id)
-                return (
-                  <button
-                    key={tag.id}
-                    onClick={() => toggle(tag.id)}
-                    className={`tag-btn ${active ? 'tag-btn-active' : ''}`}
-                  >
-                    {tag.name}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-        )
-      })}
-      <button
-        onClick={handleSave}
-        disabled={saving}
-        className="btn-primary mt-1 disabled:opacity-50"
-      >
-        <Check size={14} />
-        {saving ? 'Saving…' : 'Done'}
-      </button>
-    </div>
-  )
-}
-
-let _uploadIdCounter = 0
-
-function FileUpload({ onUploaded }) {
-  const [items, setItems] = useState([])
-  const [dragging, setDragging] = useState(false)
-  const inputRef = useRef(null)
-
-  const uploadFile = useCallback((id, file) => {
-    setItems((prev) => prev.map((it) => it.id === id ? { ...it, status: 'uploading' } : it))
-
-    const form = new FormData()
-    form.append('file', file)
-
-    const xhr = new XMLHttpRequest()
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) {
-        const pct = Math.round((e.loaded / e.total) * 100)
-        setItems((prev) => prev.map((it) => it.id === id ? { ...it, progress: pct } : it))
-      }
-    }
-    xhr.onload = () => {
-      if (xhr.status === 200) {
-        setItems((prev) => prev.map((it) => it.id === id ? { ...it, status: 'done', progress: 100 } : it))
-        onUploaded()
-      } else {
-        setItems((prev) => prev.map((it) => it.id === id ? { ...it, status: 'error' } : it))
-      }
-    }
-    xhr.onerror = () => {
-      setItems((prev) => prev.map((it) => it.id === id ? { ...it, status: 'error' } : it))
-    }
-    xhr.open('POST', '/api/upload')
-    xhr.send(form)
-  }, [onUploaded])
-
-  const addFiles = useCallback((fileList) => {
-    const newItems = [...fileList].map((file) => {
-      const id = ++_uploadIdCounter
-      return { id, file, status: 'pending', progress: 0 }
-    })
-    setItems((prev) => [...prev, ...newItems])
-    newItems.forEach(({ id, file }) => uploadFile(id, file))
-  }, [uploadFile])
-
-  const handleDrop = (e) => {
-    e.preventDefault()
-    setDragging(false)
-    if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files)
-  }
-
-  const dismiss = (id) => setItems((prev) => prev.filter((it) => it.id !== id))
-
-  return (
-    <div className="card p-4 mb-6">
-      <p className="text-sm font-medium text-slate-700 dark:text-slate-200 mb-3">Upload files</p>
-
-      <div
-        onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
-        onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDragging(false) }}
-        onDrop={handleDrop}
-        onClick={() => inputRef.current.click()}
-        className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors select-none ${
-          dragging
-            ? 'border-brand bg-brand/5 dark:bg-brand/10'
-            : 'border-slate-300 dark:border-slate-600 hover:border-slate-400 dark:hover:border-slate-500'
-        }`}
-      >
-        <Upload size={22} className="mx-auto mb-2 text-slate-400" />
-        <p className="text-sm text-slate-500 dark:text-slate-400">Drop files here or <span className="text-brand font-medium">click to browse</span></p>
-        <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">MP4, MOV, MKV, WebM, AVI · JPG, PNG, GIF, WebP</p>
-      </div>
-
-      <input
-        ref={inputRef}
-        type="file"
-        multiple
-        accept="video/mp4,video/quicktime,video/x-msvideo,video/x-matroska,video/webm,video/x-m4v,image/jpeg,image/png,image/gif,image/webp,image/bmp"
-        className="hidden"
-        onChange={(e) => { if (e.target.files.length) addFiles(e.target.files); e.target.value = '' }}
-      />
-
-      {items.length > 0 && (
-        <div className="mt-3 space-y-2">
-          {items.map((item) => (
-            <div key={item.id} className="flex items-center gap-2">
-              <div className="flex-1 min-w-0">
-                <p className="text-xs text-slate-700 dark:text-slate-300 truncate mb-1">{item.file.name}</p>
-                <div className="h-1 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all duration-200 ${item.status === 'error' ? 'bg-red-500' : 'bg-brand'}`}
-                    style={{ width: `${item.progress}%` }}
-                  />
-                </div>
-              </div>
-              <span className="text-xs w-8 text-right flex-shrink-0 font-mono text-slate-500 dark:text-slate-400">
-                {item.status === 'done' ? <Check size={13} className="text-green-500 ml-auto" /> : item.status === 'error' ? <span className="text-red-500">err</span> : `${item.progress}%`}
-              </span>
-              {(item.status === 'done' || item.status === 'error') && (
-                <button onClick={() => dismiss(item.id)} className="btn-ghost p-0.5 flex-shrink-0">
-                  <X size={11} />
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-const PROGRESS_RE = /^\[download\]\s+[\d.]+%/
-
-function UrlImport({ onImported }) {
-  const [url, setUrl] = useState('')
-  const [importing, setImporting] = useState(false)
-  const [logs, setLogs] = useState([])
-  const [error, setError] = useState(null)
-  const logsEndRef = useRef(null)
-
-  useEffect(() => {
-    logsEndRef.current?.scrollIntoView({ behavior: 'instant' })
-  }, [logs])
-
-  const handleImport = async () => {
-    const trimmed = url.trim()
-    if (!trimmed) return
-    setImporting(true)
-    setError(null)
-    setLogs([])
-
-    try {
-      const res = await fetch('/api/import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: trimmed }),
-      })
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: res.statusText }))
-        setError(err.error || 'Import failed')
-        setImporting(false)
-        return
-      }
-
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop()
-        for (const line of lines) {
-          if (!line.trim()) continue
-          try {
-            const msg = JSON.parse(line)
-            if (msg.type === 'log') {
-              setLogs((prev) => {
-                // Keep progress lines updating in place instead of flooding the log
-                if (PROGRESS_RE.test(msg.line) && prev.length && PROGRESS_RE.test(prev[prev.length - 1])) {
-                  return [...prev.slice(0, -1), msg.line]
-                }
-                return [...prev, msg.line]
-              })
-            } else if (msg.type === 'done') {
-              setUrl('')
-              onImported()
-            } else if (msg.type === 'error') {
-              setError(msg.message)
-            }
-          } catch {}
-        }
-      }
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setImporting(false)
-    }
-  }
-
-  return (
-    <div className="card p-4 mb-6">
-      <p className="text-sm font-medium text-slate-700 dark:text-slate-200 mb-3">Import from URL</p>
-      <div className="flex gap-2">
-        <input
-          type="url"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && !importing && handleImport()}
-          placeholder="https://www.linkedin.com/posts/… or YouTube URL"
-          className="input flex-1 text-sm"
-          disabled={importing}
-        />
-        <button
-          onClick={handleImport}
-          disabled={!url.trim() || importing}
-          className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <Download size={14} />
-          {importing ? 'Downloading…' : 'Import'}
-        </button>
-      </div>
-      {logs.length > 0 && (
-        <div className="mt-3 bg-slate-950 rounded-lg p-3 h-36 overflow-y-auto font-mono text-xs text-slate-300 space-y-0.5">
-          {logs.map((line, i) => (
-            <div key={i} className={PROGRESS_RE.test(line) ? 'text-brand' : ''}>{line}</div>
-          ))}
-          <div ref={logsEndRef} />
-        </div>
-      )}
-      {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
-    </div>
-  )
-}
+const SHORTCUTS = [
+  ['J / K', 'Next / previous'],
+  ['E', 'Mark reviewed, next'],
+  ['A', 'Accept AI tags (same as E)'],
+  ['S', 'Skip'],
+  ['Z', 'Undo'],
+  ['T', 'Find a tag'],
+  ['M', 'Move to folder'],
+  ['1 - 9', 'Toggle tag'],
+]
 
 export default function Inbox() {
-  const [files, setFiles] = useState([])
-  const [categories, setCategories] = useState([])
-  const [allTags, setAllTags] = useState([])
-  const [expandedId, setExpandedId] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const navigate = useNavigate()
+  const qc = useQueryClient()
+  const bulk = useBulkActions()
+  const { enabled: loginOn } = useAuth()
+  const { groups } = useTaxonomy()
+  const { data: folderData } = useFolders()
+  const { data: counts } = useFileCounts()
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    const [result, cats, tags] = await Promise.all([
-      getFiles({ view: 'inbox', sort: 'date_added', order: 'desc', limit: 200 }),
-      getCategories(),
-      getTags(),
-    ])
-    setFiles(result.files)
-    setCategories(cats)
-    setAllTags(tags)
-    setLoading(false)
-  }, [])
+  const [filter, setFilter] = useState('all')
+  const status = FILTERS.find((f) => f.value === filter).status
 
-  useEffect(() => { load() }, [load])
+  const query = useInfiniteQuery({
+    queryKey: ['files', 'inbox', status ?? 'all'],
+    queryFn: ({ pageParam }) => getFiles({ view: 'inbox', status, sort: 'date_added', order: 'desc', page: pageParam, limit: PAGE_SIZE }),
+    initialPageParam: 1,
+    getNextPageParam: (last, all) => (all.length * PAGE_SIZE < last.total ? all.length + 1 : undefined),
+  })
+  const files = useMemo(() => {
+    const seen = new Set()
+    return (query.data?.pages ?? []).flatMap((p) => p.files).filter((f) => !seen.has(f.id) && seen.add(f.id))
+  }, [query.data])
+  const total = query.data?.pages[0]?.total ?? 0
 
-  const handleSaved = useCallback((updated) => {
-    setFiles((prev) => prev.filter((f) => f.id !== updated.id))
-    setExpandedId(null)
-  }, [])
+  // ----- Current file
+  const [currentId, setCurrentId] = useState(null)
+  const lastIndex = useRef(0)
+  const idx = files.findIndex((f) => f.id === currentId)
+  const current = idx >= 0 ? files[idx] : null
 
-  if (loading) {
+  // Keep a valid selection: after the current file leaves the queue, land on the neighbour.
+  useEffect(() => {
+    if (!files.length) { setCurrentId(null); return }
+    if (!files.some((f) => f.id === currentId)) {
+      setCurrentId(files[Math.min(lastIndex.current, files.length - 1)].id)
+    }
+  }, [files, currentId])
+  useEffect(() => { if (idx >= 0) lastIndex.current = idx }, [idx])
+
+  const go = useCallback((delta) => {
+    if (!files.length) return
+    const i = idx < 0 ? 0 : Math.max(0, Math.min(files.length - 1, idx + delta))
+    setCurrentId(files[i].id)
+  }, [files, idx])
+
+  // ----- Actions
+  const [moving, setMoving] = useState(false)
+  const [quickTag, setQuickTag] = useState(false)
+  const [saveState, setSaveState] = useState('idle')
+  const toggleRef = useRef(null)
+  const lastReviewed = useRef(null)
+
+  const confirm = useCallback(async () => {
+    if (!current) return
+    const nextId = (files[idx + 1] ?? files[idx - 1])?.id ?? null
+    const reviewed = current.id
+    if (await bulk.markReviewed([current])) {
+      lastReviewed.current = reviewed
+      setCurrentId(nextId)
+    }
+  }, [current, files, idx, bulk])
+
+  const undo = useCallback(async () => {
+    if (await bulk.undoLast()) {
+      // Wait for the queue to include the restored file before selecting it.
+      await qc.invalidateQueries({ queryKey: ['files'] })
+      if (lastReviewed.current != null) setCurrentId(lastReviewed.current)
+    }
+  }, [bulk, qc])
+
+  const nonSystemTags = useMemo(() => groups.filter((g) => !g.is_system).flatMap((g) => g.tags), [groups])
+  const hotkeys = useMemo(() => new Map(nonSystemTags.slice(0, 9).map((t, i) => [t.id, String(i + 1)])), [nonSystemTags])
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return
+      const t = e.target
+      if (t instanceof HTMLElement && t.closest('input, textarea, select, [contenteditable=true], [role=dialog], [role=menu], [role=listbox]')) return
+      if (document.querySelector('[role=dialog][data-open], [role=alertdialog]')) return
+      const k = e.key.toLowerCase()
+      const run = {
+        j: () => go(1), k: () => go(-1),
+        e: confirm, a: confirm,
+        s: () => go(1),
+        z: undo,
+        t: () => current && setQuickTag(true),
+        m: () => current && setMoving(true),
+      }[k]
+      if (run) { e.preventDefault(); run(); return }
+      if (/^[1-9]$/.test(k) && current) {
+        const tag = nonSystemTags[Number(k) - 1]
+        if (tag && toggleRef.current) { e.preventDefault(); toggleRef.current(tag.id) }
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [go, confirm, undo, current, nonSystemTags])
+
+  const selectedTagIds = useMemo(() => new Set((current?.tags ?? []).map((t) => t.id)), [current])
+  const onSaved = useCallback(() => {
+    qc.invalidateQueries({ queryKey: ['files'] })
+    qc.invalidateQueries({ queryKey: ['counts'] })
+  }, [qc])
+
+  const folders = folderData?.folders ?? []
+  const folderLabel = !current || current.folder_id == null ? 'Unfiled' : folderPath(folders, current.folder_id).join(' / ')
+
+  // ----- Render
+  const filterBar = (
+    <ToggleGroup
+      value={[filter]}
+      onValueChange={(v) => v[0] && setFilter(v[0])}
+      variant="outline"
+      spacing={0}
+      aria-label="Filter the inbox"
+    >
+      {FILTERS.map((f) => (
+        <ToggleGroupItem key={f.value} value={f.value} size="sm">
+          {f.label}
+          {f.value === 'ai' && counts?.needs_review > 0 ? <Badge className="ml-1 h-4 px-1">{counts.needs_review}</Badge> : null}
+        </ToggleGroupItem>
+      ))}
+    </ToggleGroup>
+  )
+
+  if (!query.isLoading && files.length === 0) {
     return (
-      <div className="p-6 space-y-3">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className="card h-16 animate-pulse" />
-        ))}
+      <div className="flex h-full flex-col">
+        <div className="flex items-center gap-3 px-4 pt-4"><h1 className="text-lg font-semibold tracking-tight">Inbox</h1>{filterBar}</div>
+        <Empty className="flex-1">
+          <EmptyHeader>
+            <EmptyMedia variant="icon"><RiInboxLine /></EmptyMedia>
+            <EmptyTitle>{filter === 'all' ? 'Inbox zero' : 'Nothing in this view'}</EmptyTitle>
+            <EmptyDescription>
+              {filter === 'all'
+                ? 'Everything has been reviewed. New uploads and scanned files will show up here.'
+                : 'No files match this filter. Try All.'}
+            </EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent className="flex-row justify-center">
+            <Button variant="outline" render={<Link to="/add-media" />}>Add media</Button>
+            <Button render={<Link to="/library" />}>Open library</Button>
+          </EmptyContent>
+        </Empty>
       </div>
     )
   }
 
+  const isVideo = current?.file_type === 'video'
+
   return (
-    <div className="p-6">
-      <div className="mb-5">
-        <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Add Media</h1>
-        <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Import from URL or tag files waiting below</p>
-      </div>
+    <div className="flex h-full min-h-0 flex-col">
+      <header className="flex shrink-0 flex-wrap items-center gap-3 border-b px-4 py-2.5">
+        <h1 className="text-lg font-semibold tracking-tight">Inbox</h1>
+        <p className="text-xs text-muted-foreground" aria-live="polite">{query.isLoading ? 'Loading…' : `${total} to review`}</p>
+        <div className="ml-auto">{filterBar}</div>
+      </header>
 
-      <div className="max-w-2xl">
-        <FileUpload onUploaded={load} />
-        <UrlImport onImported={load} />
+      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[17rem_minmax(0,1fr)] xl:grid-cols-[17rem_minmax(0,1fr)_21rem]">
+        {/* Queue (desktop) */}
+        <aside className="hidden min-h-0 border-r lg:block" aria-label="Queue">
+          <ScrollArea className="h-full">
+            <QueueList
+              files={files}
+              currentId={currentId}
+              onSelect={setCurrentId}
+              loading={query.isLoading}
+              hasMore={!!query.hasNextPage}
+              loadingMore={query.isFetchingNextPage}
+              onLoadMore={query.fetchNextPage}
+            />
+          </ScrollArea>
+        </aside>
 
-        {!loading && files.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-20 text-slate-400 dark:text-slate-500">
-            <Check size={32} className="mb-3 text-green-500" />
-            <p className="text-sm font-medium text-slate-700 dark:text-slate-300">All files tagged</p>
-          </div>
-        )}
-
-      <div className="space-y-2">
-        {files.map((file) => {
-          const thumb = thumbnailUrl(file)
-          const expanded = expandedId === file.id
-          return (
-            <div key={file.id} className={`card transition-all duration-150 ${expanded ? 'ring-1 ring-brand/30' : ''}`}>
-              <div
-                className="flex items-center gap-3 p-3 cursor-pointer"
-                onClick={() => setExpandedId(expanded ? null : file.id)}
-              >
-                {/* Thumbnail */}
-                <div className="w-20 h-12 flex-shrink-0 bg-slate-200 dark:bg-slate-700 rounded-lg overflow-hidden">
-                  {thumb ? (
-                    <img src={thumb} alt={file.filename} className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-slate-400 dark:text-slate-500 text-xs">
-                      {file.file_type}
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-slate-800 dark:text-slate-200 font-medium truncate">{file.filename}</p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    {file.file_type} {formatDuration(file.duration) ? `· ${formatDuration(file.duration)}` : ''}
-                    {file.width ? ` · ${file.width}×${file.height}` : ''}
+        {/* Preview + actions */}
+        <section className="flex min-h-0 flex-col" aria-label="Preview">
+          {!current ? (
+            <div className="p-4"><Skeleton className="aspect-video w-full" /></div>
+          ) : (
+            <>
+              <div className="flex shrink-0 flex-wrap items-center gap-2 px-4 py-2">
+                <div className="min-w-0 flex-1">
+                  <h2 className="truncate text-sm font-medium" title={current.filename}>{current.filename}</h2>
+                  <p className="text-xs text-muted-foreground">
+                    {idx + 1} of {files.length}{query.hasNextPage ? '+' : ''}
+                    {(loginOn || current.uploader) && uploaderLabel(current) && <> · added by {uploaderLabel(current)}</>}
+                    {current.agent_reviewed_at && <> · <RiSparklingLine className="-mt-0.5 inline size-3 text-primary" /> reviewed by AI</>}
                   </p>
                 </div>
-
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); navigate(`/player/${file.id}`) }}
-                    className="btn-ghost text-xs py-1"
-                  >
-                    Open
-                  </button>
-                  <ChevronRight
-                    size={14}
-                    className={`text-slate-500 transition-transform duration-150 ${expanded ? 'rotate-90' : ''}`}
-                  />
+                <div className="flex items-center gap-1 lg:hidden">
+                  <Button variant="outline" size="icon" onClick={() => go(-1)} disabled={idx <= 0} aria-label="Previous file"><RiArrowUpSLine /></Button>
+                  <Button variant="outline" size="icon" onClick={() => go(1)} disabled={idx >= files.length - 1} aria-label="Next file"><RiArrowDownSLine /></Button>
                 </div>
               </div>
 
-              {expanded && (
-                <div className="px-3 pb-3 border-t border-white/[0.06] pt-3">
-                  <InlineTagPicker
-                    file={file}
-                    categories={categories}
-                    allTags={allTags}
-                    onSaved={handleSaved}
+              <div className="min-h-0 flex-1 px-4 pb-2">
+                {isVideo ? (
+                  <VideoPlayer file={current} autoPlay reservedKeys={RESERVED} />
+                ) : (
+                  <div className="flex size-full items-center justify-center overflow-hidden rounded-xl bg-muted">
+                    {thumbnailUrl(current) ? (
+                      <img src={streamUrl(current.id)} alt={current.filename} className="max-h-full max-w-full object-contain" />
+                    ) : <RiImageLine className="size-8 text-muted-foreground" />}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex shrink-0 flex-wrap items-center gap-2 border-t px-4 py-2.5">
+                <Button onClick={confirm}>
+                  <RiCheckDoubleLine data-icon="inline-start" /> {current.agent_reviewed_at ? 'Confirm' : 'Mark reviewed'} <Kbd className="ml-1 bg-primary-foreground/20 text-primary-foreground">E</Kbd>
+                </Button>
+                <Button variant="outline" onClick={() => go(1)} disabled={idx >= files.length - 1}>
+                  <RiSkipForwardLine data-icon="inline-start" /> Skip <Kbd className="ml-1">S</Kbd>
+                </Button>
+                <Button variant="outline" onClick={() => setMoving(true)}>
+                  <RiFolderTransferLine data-icon="inline-start" /> Move <Kbd className="ml-1">M</Kbd>
+                </Button>
+                <Button variant="ghost" onClick={undo}><RiArrowGoBackLine data-icon="inline-start" /> Undo <Kbd className="ml-1">Z</Kbd></Button>
+                <span className="ml-auto flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+                  <RiFolderLine className="size-3.5 shrink-0" /><span className="truncate">{folderLabel}</span>
+                </span>
+              </div>
+            </>
+          )}
+        </section>
+
+        {/* Tags + notes */}
+        <aside className="min-h-0 border-t lg:col-span-2 lg:border-l-0 xl:col-span-1 xl:border-l xl:border-t-0" aria-label="Tags and notes">
+          <ScrollArea className="h-full">
+            {current && (
+              <div className="space-y-5 p-4">
+                <div>
+                  <div className="mb-2 flex items-center justify-between">
+                    <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tags</h2>
+                    <SaveIndicator state={saveState} />
+                  </div>
+                  <TagEditor
+                    file={current}
+                    onSaved={onSaved}
+                    onSaveStateChange={setSaveState}
+                    hotkeys={hotkeys}
+                    toggleRef={toggleRef}
+                    showNewCategory={false}
                   />
                 </div>
-              )}
-            </div>
-          )
-        })}
+                <div>
+                  <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Notes</h2>
+                  <div className="h-36"><NotesEditor file={current} onSaved={onSaved} /></div>
+                </div>
+                <details className="text-xs text-muted-foreground">
+                  <summary className="cursor-pointer select-none">Keyboard shortcuts</summary>
+                  <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+                    {SHORTCUTS.map(([k, d]) => (
+                      <React.Fragment key={k}><dt><Kbd>{k}</Kbd></dt><dd>{d}</dd></React.Fragment>
+                    ))}
+                  </dl>
+                </details>
+              </div>
+            )}
+          </ScrollArea>
+        </aside>
       </div>
-      </div>
+
+      <MoveToFolderDialog
+        open={moving}
+        onOpenChange={setMoving}
+        title="Move to folder"
+        onSelect={(fid, f) => current && bulk.moveToFolder([current], fid, f?.name)}
+      />
+      <QuickTagDialog
+        open={quickTag}
+        onOpenChange={setQuickTag}
+        groups={groups}
+        selectedIds={selectedTagIds}
+        onToggle={(id) => toggleRef.current?.(id)}
+      />
     </div>
   )
 }

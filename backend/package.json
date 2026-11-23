@@ -1,10 +1,12 @@
 {
   "name": "motionbase-backend",
-  "version": "1.2.0",
+  "version": "2.0.0",
   "type": "module",
   "scripts": {
     "dev": "node --watch src/index.js",
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "test": "node --test test/*.test.js",
+    "openapi": "node scripts/generate-openapi.js"
   },
   "dependencies": {
     "better-sqlite3": "^11.0.0",

@@ -1,301 +1,257 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { Check, Plus, Search, X } from 'lucide-react'
-import { getTags, getCategories, patchFile, createTag, createCategory } from '../api/client.js'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import { RiAddLine, RiCheckLine, RiCloseLine, RiSparklingLine, RiLockLine } from '@remixicon/react'
+import { toast } from 'sonner'
+import { Badge } from '@/components/ui/badge.jsx'
+import { Button } from '@/components/ui/button.jsx'
+import { Input } from '@/components/ui/input.jsx'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover.jsx'
+import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '@/components/ui/command.jsx'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.jsx'
+import { Skeleton } from '@/components/ui/skeleton.jsx'
+import { cn } from '@/lib/utils.js'
+import { patchFile, createTag, createCategory } from '@/api/client.js'
+import { useTaxonomy } from '@/hooks/useTaxonomy.js'
 
-// Once a category has more tags than this, only the most-used ones show inline;
-// the rest live behind a searchable "+N more" popover so a big Brand list doesn't
-// swamp the sidebar.
-const TAG_COLLAPSE_THRESHOLD = 10
-const TAG_VISIBLE_COUNT = 8
+// Once a category has more tags than this, only the most-used ones show inline and the rest
+// live behind a searchable "+N more" popover.
+const COLLAPSE_AFTER = 10
+const VISIBLE_COUNT = 8
 
-function TagPickerPopover({ cat, tags, selectedIds, onToggle, onClose }) {
-  const [query, setQuery] = useState('')
-  const ref = useRef(null)
-
-  useEffect(() => {
-    const handler = (e) => { if (!ref.current?.contains(e.target)) onClose() }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [onClose])
-
-  const filtered = tags
-    .filter((t) => t.name.toLowerCase().includes(query.trim().toLowerCase()))
-    .sort((a, b) => (b.file_count || 0) - (a.file_count || 0))
-
+function TagToggle({ tag, active, aiSourced, disabled, onToggle, hotkey }) {
   return (
-    <div
-      ref={ref}
-      className="absolute z-30 top-full left-0 mt-1.5 card p-3 w-64 shadow-xl border border-slate-200 dark:border-white/[0.08]"
+    <button
+      type="button"
+      aria-pressed={active}
+      disabled={disabled}
+      onClick={() => onToggle(tag.id)}
+      className={cn(
+        'inline-flex h-6 items-center gap-1 rounded-full border px-2.5 text-xs outline-none transition-colors',
+        'focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-60',
+        active
+          ? 'border-primary bg-primary text-primary-foreground hover:bg-primary/90'
+          : 'border-input bg-transparent hover:bg-muted'
+      )}
     >
-      <div className="relative mb-2">
-        <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-        <input
-          autoFocus
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={`Search ${cat.name.toLowerCase()}…`}
-          className="input pl-6 py-1 text-xs w-full"
-        />
-      </div>
-      <div className="flex flex-wrap gap-1.5 max-h-52 overflow-y-auto">
-        {filtered.length === 0 && (
-          <p className="text-xs text-slate-400 dark:text-slate-500 px-0.5 py-1">No matching tags</p>
-        )}
-        {filtered.map((tag) => {
-          const active = selectedIds.has(tag.id)
-          return (
-            <button
-              key={tag.id}
-              onClick={() => onToggle(tag.id)}
-              className={`tag-btn ${active ? 'tag-btn-active' : ''}`}
-            >
-              {tag.name}
-            </button>
-          )
-        })}
-      </div>
-    </div>
+      {aiSourced && active && <RiSparklingLine className="size-3" aria-label="Added by AI" />}
+      {tag.name}
+      {hotkey && <kbd className="ml-0.5 font-mono text-[0.625rem] opacity-60">{hotkey}</kbd>}
+    </button>
   )
 }
 
-function CategoryTagList({ cat, tags, selectedIds, onToggle }) {
-  const [popoverOpen, setPopoverOpen] = useState(false)
+function MoreTags({ cat, tags, selectedIds, onToggle }) {
+  return (
+    <Popover>
+      <PopoverTrigger render={<Button variant="ghost" size="sm" className="rounded-full text-muted-foreground" />}>
+        +{tags.length} more
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-60 p-0">
+        <Command>
+          <CommandInput placeholder={`Search ${cat.name.toLowerCase()}…`} />
+          <CommandList className="max-h-60">
+            <CommandEmpty>No matching tags.</CommandEmpty>
+            {tags.map((t) => (
+              <CommandItem key={t.id} value={t.name} data-checked={selectedIds.has(t.id)} onSelect={() => onToggle(t.id)}>
+                {t.name}
+              </CommandItem>
+            ))}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  )
+}
 
-  const renderTag = (tag) => {
-    const active = selectedIds.has(tag.id)
+function InlineAdd({ placeholder, onSubmit, label }) {
+  const [open, setOpen] = useState(false)
+  const [value, setValue] = useState('')
+  const [busy, setBusy] = useState(false)
+  const submit = async () => {
+    const v = value.trim()
+    if (!v) return
+    setBusy(true)
+    try { await onSubmit(v); setValue(''); setOpen(false) } catch (err) { toast.error(err.message) } finally { setBusy(false) }
+  }
+  if (!open) {
     return (
-      <button
-        key={tag.id}
-        onClick={() => onToggle(tag.id)}
-        className={`tag-btn ${active ? 'tag-btn-active' : ''}`}
-      >
-        {tag.name}
-      </button>
+      <Button variant="ghost" size="sm" className="rounded-full text-muted-foreground" onClick={() => setOpen(true)}>
+        <RiAddLine data-icon="inline-start" /> {label}
+      </Button>
     )
   }
-
-  if (tags.length <= TAG_COLLAPSE_THRESHOLD) {
-    return <>{tags.map(renderTag)}</>
-  }
-
-  // Always keep already-selected tags visible; fill remaining slots with the
-  // most-used unselected tags so the common case never needs the popover.
-  const selected = tags.filter((t) => selectedIds.has(t.id))
-  const unselected = tags
-    .filter((t) => !selectedIds.has(t.id))
-    .sort((a, b) => (b.file_count || 0) - (a.file_count || 0))
-  const visible = [...selected, ...unselected.slice(0, Math.max(0, TAG_VISIBLE_COUNT - selected.length))]
-  const hiddenCount = tags.length - visible.length
-
   return (
-    <>
-      {visible.map(renderTag)}
-      {hiddenCount > 0 && (
-        <div className="relative">
-          <button
-            onClick={() => setPopoverOpen((o) => !o)}
-            className="tag-btn text-slate-400 dark:text-slate-500 hover:text-brand"
-          >
-            +{hiddenCount} more
-          </button>
-          {popoverOpen && (
-            <TagPickerPopover
-              cat={cat}
-              tags={tags}
-              selectedIds={selectedIds}
-              onToggle={onToggle}
-              onClose={() => setPopoverOpen(false)}
-            />
-          )}
-        </div>
-      )}
-    </>
+    <span className="inline-flex items-center gap-1">
+      <Input
+        autoFocus
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          e.stopPropagation()
+          if (e.key === 'Enter') submit()
+          if (e.key === 'Escape') { setOpen(false); setValue('') }
+        }}
+        placeholder={placeholder}
+        aria-label={placeholder}
+        className="h-6 w-32"
+        disabled={busy}
+      />
+      <Button size="icon-sm" variant="ghost" onClick={submit} disabled={busy} aria-label="Save"><RiCheckLine /></Button>
+      <Button size="icon-sm" variant="ghost" onClick={() => { setOpen(false); setValue('') }} aria-label="Cancel"><RiCloseLine /></Button>
+    </span>
   )
 }
 
-export default function TagEditor({ file, onSaved, onSaveStateChange }) {
-  const [categories, setCategories] = useState([])
-  const [allTags, setAllTags] = useState([])
-  const [selectedIds, setSelectedIds] = useState(new Set())
-  const [saveState, setSaveState] = useState('idle') // 'idle' | 'saving' | 'saved'
+/**
+ * Tag editor for one file. Changes autosave 600 ms after the last toggle.
+ * Categories with selection "single" behave like radio groups; system categories are read-only.
+ * `toggleRef` receives the toggle function so a parent can bind keyboard shortcuts.
+ * `hotkeys` (Map tagId -> key label) shows a key hint on a tag; the caller binds the keys (Inbox triage).
+ */
+export default function TagEditor({ file, onSaved, onSaveStateChange, showNewCategory = true, hotkeys, toggleRef }) {
+  const { groups, isLoading } = useTaxonomy()
+  const qc = useQueryClient()
+  const [selectedIds, setSelectedIds] = useState(() => new Set((file?.tags ?? []).map((t) => t.id)))
+  const [saveState, setSaveState] = useState('idle')
 
-  // Surface save state to the parent so it can show the indicator in the panel
-  // header instead of reserving a gap at the top of the tag list.
-  const onSaveStateChangeRef = useRef(onSaveStateChange)
-  useEffect(() => { onSaveStateChangeRef.current = onSaveStateChange }, [onSaveStateChange])
-  useEffect(() => { onSaveStateChangeRef.current?.(saveState) }, [saveState])
-
-  // Inline new-tag state
-  const [addingTagTo, setAddingTagTo] = useState(null)
-  const [newTagName, setNewTagName] = useState('')
-  // Inline new-category state
-  const [addingCategory, setAddingCategory] = useState(false)
-  const [newCatName, setNewCatName] = useState('')
-
-  const debounceRef = useRef(null)
+  const timer = useRef(null)
+  const fileIdRef = useRef(file?.id)
+  const pendingRef = useRef(null)
   const onSavedRef = useRef(onSaved)
   useEffect(() => { onSavedRef.current = onSaved }, [onSaved])
+  const stateCb = useRef(onSaveStateChange)
+  useEffect(() => { stateCb.current = onSaveStateChange }, [onSaveStateChange])
+  useEffect(() => { stateCb.current?.(saveState) }, [saveState])
 
+  const flush = useCallback(async () => {
+    clearTimeout(timer.current)
+    const pending = pendingRef.current
+    if (!pending) return
+    pendingRef.current = null
+    try {
+      const updated = await patchFile(pending.fileId, { tag_ids: [...pending.ids] })
+      onSavedRef.current?.(updated)
+      qc.invalidateQueries({ queryKey: ['files'] })
+      qc.invalidateQueries({ queryKey: ['tags'] })
+      setSaveState('saved')
+      setTimeout(() => setSaveState((s) => (s === 'saved' ? 'idle' : s)), 1500)
+    } catch (err) {
+      toast.error(`Could not save tags: ${err.message}`)
+      setSaveState('idle')
+    }
+  }, [qc])
+
+  // New file: flush anything pending for the previous one, then adopt the new file's tags.
   useEffect(() => {
-    Promise.all([getCategories(), getTags()]).then(([cats, tags]) => {
-      setCategories(cats)
-      setAllTags(tags)
-    })
-  }, [])
+    if (fileIdRef.current !== file?.id) {
+      flush()
+      fileIdRef.current = file?.id
+    }
+    setSelectedIds(new Set((file?.tags ?? []).map((t) => t.id)))
+    setSaveState('idle')
+  }, [file?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Reflect tags changed from outside (agent, bulk edit) when nothing is pending.
+  const tagSig = (file?.tags ?? []).map((t) => t.id).sort().join(',')
   useEffect(() => {
-    if (file?.tags) setSelectedIds(new Set(file.tags.map((t) => t.id)))
-  }, [file?.id])
+    if (!pendingRef.current) setSelectedIds(new Set((file?.tags ?? []).map((t) => t.id)))
+  }, [tagSig]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-save 600ms after the last toggle
-  const scheduleAutoSave = useCallback((ids) => {
-    clearTimeout(debounceRef.current)
+  useEffect(() => () => { flush() }, [flush])
+
+  const schedule = useCallback((ids) => {
+    pendingRef.current = { fileId: file.id, ids }
     setSaveState('saving')
-    debounceRef.current = setTimeout(async () => {
-      try {
-        const updated = await patchFile(file.id, {
-          tag_ids: [...ids],
-          needs_tagging: ids.size > 0 ? 0 : 1,
-        })
-        onSavedRef.current?.(updated)
-        setSaveState('saved')
-        setTimeout(() => setSaveState('idle'), 1500)
-      } catch {
-        setSaveState('idle')
-      }
-    }, 600)
-  }, [file?.id])
-
-  // Cleanup debounce on unmount
-  useEffect(() => () => clearTimeout(debounceRef.current), [])
+    clearTimeout(timer.current)
+    timer.current = setTimeout(flush, 600)
+  }, [file?.id, flush])
 
   const toggle = useCallback((tagId) => {
+    const cat = groups.find((g) => g.tags.some((t) => t.id === tagId))
     setSelectedIds((prev) => {
       const next = new Set(prev)
-      next.has(tagId) ? next.delete(tagId) : next.add(tagId)
-      scheduleAutoSave(next)
+      if (next.has(tagId)) next.delete(tagId)
+      else {
+        if (cat?.selection === 'single') cat.tags.forEach((t) => next.delete(t.id))
+        next.add(tagId)
+      }
+      schedule(next)
       return next
     })
-  }, [scheduleAutoSave])
+  }, [groups, schedule])
 
-  const handleAddTag = useCallback(async (catId) => {
-    const name = newTagName.trim()
-    if (!name) return
-    const tag = await createTag({ category_id: catId, name })
-    setAllTags((prev) => [...prev, tag])
+  useEffect(() => {
+    if (toggleRef) toggleRef.current = toggle
+    return () => { if (toggleRef) toggleRef.current = null }
+  }, [toggleRef, toggle])
+
+  const addTag = async (cat, name) => {
+    const tag = await createTag({ category_id: cat.id, name })
+    qc.invalidateQueries({ queryKey: ['tags'] })
     setSelectedIds((prev) => {
-      const next = new Set([...prev, tag.id])
-      scheduleAutoSave(next)
+      const next = new Set(prev)
+      if (cat.selection === 'single') cat.tags.forEach((t) => next.delete(t.id))
+      next.add(tag.id)
+      schedule(next)
       return next
     })
-    setNewTagName('')
-    setAddingTagTo(null)
-  }, [newTagName, scheduleAutoSave])
+  }
 
-  const handleAddCategory = useCallback(async () => {
-    const name = newCatName.trim()
-    if (!name) return
-    const cat = await createCategory({ name })
-    setCategories((prev) => [...prev, cat])
-    setNewCatName('')
-    setAddingCategory(false)
-  }, [newCatName])
+  const addCategory = async (name) => {
+    await createCategory({ name })
+    qc.invalidateQueries({ queryKey: ['categories'] })
+  }
 
   if (!file) return null
+  if (isLoading) return <div className="space-y-4"><Skeleton className="h-16" /><Skeleton className="h-16" /></div>
+
+  const aiIds = new Set((file.tags ?? []).filter((t) => t.source === 'agent').map((t) => t.id))
 
   return (
-    <div className="flex flex-col gap-4">
-      {categories.map((cat) => {
-        const catTags = allTags.filter((t) => t.category_id === cat.id)
-        const isAddingHere = addingTagTo === cat.id
+    <div className="flex flex-col gap-5">
+      {groups.map((cat) => {
+        const readOnly = !!cat.is_system
+        const single = cat.selection === 'single'
+        const collapse = cat.tags.length > COLLAPSE_AFTER
+        const byUse = [...cat.tags].sort((a, b) => (b.file_count || 0) - (a.file_count || 0))
+        const inline = collapse
+          ? [...cat.tags.filter((t) => selectedIds.has(t.id)), ...byUse.filter((t) => !selectedIds.has(t.id))]
+              .slice(0, Math.max(VISIBLE_COUNT, cat.tags.filter((t) => selectedIds.has(t.id)).length))
+          : cat.tags
+        const hidden = collapse ? cat.tags.filter((t) => !inline.includes(t)) : []
         return (
-          <div key={cat.id}>
-            <p className="text-xs text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wider mb-2">
-              {cat.name}
-            </p>
-            <div className="flex flex-wrap gap-1.5 items-center">
-              <CategoryTagList cat={cat} tags={catTags} selectedIds={selectedIds} onToggle={toggle} />
-
-              {/* Inline add-tag input */}
-              {isAddingHere ? (
-                <div className="flex items-center gap-1">
-                  <input
-                    autoFocus
-                    value={newTagName}
-                    onChange={(e) => setNewTagName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleAddTag(cat.id)
-                      if (e.key === 'Escape') { setAddingTagTo(null); setNewTagName('') }
-                    }}
-                    placeholder="Tag name…"
-                    className="input py-0.5 text-xs w-28"
-                  />
-                  <button
-                    onClick={() => handleAddTag(cat.id)}
-                    className="btn-ghost p-1 text-brand"
-                    title="Add tag"
-                  >
-                    <Check size={12} />
-                  </button>
-                  <button
-                    onClick={() => { setAddingTagTo(null); setNewTagName('') }}
-                    className="btn-ghost p-1"
-                    title="Cancel"
-                  >
-                    <X size={12} />
-                  </button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => { setAddingTagTo(cat.id); setNewTagName('') }}
-                  className="tag-btn flex items-center gap-1 text-slate-400 dark:text-slate-500 hover:text-brand"
-                  title="Add tag to this category"
-                >
-                  <Plus size={10} /> Add
-                </button>
+          <section key={cat.id} aria-labelledby={`cat-${cat.id}`}>
+            <div className="mb-1.5 flex items-center gap-1.5">
+              <h3 id={`cat-${cat.id}`} className="text-xs font-medium text-muted-foreground">{cat.name}</h3>
+              {readOnly && (
+                <Tooltip>
+                  <TooltipTrigger render={<span className="text-muted-foreground" />}><RiLockLine className="size-3" aria-label="Automatic, read-only" /></TooltipTrigger>
+                  <TooltipContent>Set automatically</TooltipContent>
+                </Tooltip>
               )}
+              {single && <Badge variant="ghost" className="h-4 text-[0.625rem] text-muted-foreground">pick one</Badge>}
             </div>
-          </div>
+            {cat.description && <p className="mb-1.5 text-xs text-muted-foreground">{cat.description}</p>}
+            <div className="flex flex-wrap items-center gap-1.5" role={single ? 'radiogroup' : 'group'} aria-labelledby={`cat-${cat.id}`}>
+              {inline.map((t) => (
+                <TagToggle
+                  key={t.id}
+                  tag={t}
+                  active={selectedIds.has(t.id)}
+                  aiSourced={aiIds.has(t.id)}
+                  disabled={readOnly}
+                  onToggle={toggle}
+                  hotkey={hotkeys?.get(t.id)}
+                />
+              ))}
+              {hidden.length > 0 && <MoreTags cat={cat} tags={hidden} selectedIds={selectedIds} onToggle={toggle} />}
+              {!readOnly && <InlineAdd label="New tag" placeholder="Tag name" onSubmit={(n) => addTag(cat, n)} />}
+              {cat.tags.length === 0 && readOnly && <span className="text-xs text-muted-foreground">None</span>}
+            </div>
+          </section>
         )
       })}
-
-      {/* Add new category */}
-      {addingCategory ? (
-        <div className="flex items-center gap-1.5 pt-1">
-          <input
-            autoFocus
-            value={newCatName}
-            onChange={(e) => setNewCatName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleAddCategory()
-              if (e.key === 'Escape') { setAddingCategory(false); setNewCatName('') }
-            }}
-            placeholder="Category name…"
-            className="input py-0.5 text-xs w-36"
-          />
-          <button
-            onClick={handleAddCategory}
-            className="btn-ghost p-1 text-brand"
-            title="Create category"
-          >
-            <Check size={12} />
-          </button>
-          <button
-            onClick={() => { setAddingCategory(false); setNewCatName('') }}
-            className="btn-ghost p-1"
-            title="Cancel"
-          >
-            <X size={12} />
-          </button>
-        </div>
-      ) : (
-        <button
-          onClick={() => setAddingCategory(true)}
-          className="self-start btn-ghost text-xs gap-1 text-slate-400 dark:text-slate-500 hover:text-brand px-2 py-1"
-        >
-          <Plus size={11} /> New Category
-        </button>
-      )}
+      {showNewCategory && <div><InlineAdd label="New category" placeholder="Category name" onSubmit={addCategory} /></div>}
     </div>
   )
 }

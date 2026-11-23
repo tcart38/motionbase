@@ -1,4 +1,8 @@
-export function runMigrations(db) {
+// Schema version 0: the original MotionBase schema. Idempotent (IF NOT EXISTS /
+// ignored ALTERs) so databases created before the migration runner existed
+// (PRAGMA user_version = 0) upgrade cleanly. All later changes live in
+// db/migrations.js.
+export function applyBaseSchema(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS files (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,11 +56,9 @@ export function runMigrations(db) {
   try { db.exec("ALTER TABLE files ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0") } catch {}
   try { db.exec("ALTER TABLE files ADD COLUMN notes TEXT") } catch {}
   try { db.exec("ALTER TABLE files ADD COLUMN file_size INTEGER") } catch {}
-
-  seed(db)
 }
 
-function seed(db) {
+export function seed(db) {
   const insertCat = db.prepare(
     'INSERT OR IGNORE INTO tag_categories (name, is_system) VALUES (?, ?)'
   )
