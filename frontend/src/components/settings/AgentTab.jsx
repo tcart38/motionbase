@@ -16,6 +16,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog.jsx'
+import AgentDocs from '@/components/settings/AgentDocs.jsx'
 import ConfirmAction from '@/components/ConfirmAction.jsx'
 
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`
@@ -208,6 +209,7 @@ export default function AgentTab() {
       <ConfirmationCard />
       <TokenCard />
       <ActivityCard />
+      <AgentDocs />
     </div>
   )
 }
