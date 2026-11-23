@@ -14,6 +14,8 @@ A self-hosted library for motion and graphic design inspiration. MotionBase watc
 - **Favorites & notes** — star files and jot down freeform notes on them.
 - **URL import** — paste a video URL and MotionBase downloads it (via `yt-dlp`) straight into your media folder, then auto-scans it in.
 - **File upload** — drag-and-drop files directly into the media folder from the browser.
+- **Virtual folders** — organise the library into nested folders that live only in the database (your media directory is never rearranged). Optionally mirror the on-disk directory structure with `POST /api/folders/import-from-disk`.
+- **Agent API** — let an AI agent (or script) triage the Inbox: view frames/contact sheets, apply tags, notes and folders in atomic, dry-runnable batches, with an undoable activity log. See [docs/AGENT_API.md](docs/AGENT_API.md).
 - **Light/dark mode.**
 
 ## Tech stack
@@ -80,12 +82,33 @@ The current app version is shown in the app under **Settings**, sourced from `ba
 | `MEDIA_DIR`     | `/media`| Folder to scan for video/image files. Mount your inspo folder here.  |
 | `DATA_DIR`      | `/data` | Writable folder for the SQLite DB and generated thumbnails. Should be a persistent volume/appdata path. |
 | `SCAN_INTERVAL` | `30`    | Minutes between automatic rescans (also editable in-app under Settings). `0` disables auto-scan. |
+| `AGENT_API_TOKEN` | —     | Optional static bearer token for the [Agent API](docs/AGENT_API.md), in addition to tokens created in Settings. |
+| `FRAME_CONCURRENCY` | `2`   | Max simultaneous `ffmpeg` processes for agent frame/contact-sheet extraction. |
 | `NODE_ENV`      | —       | Set to `production` in the Docker image; enables serving the built frontend. |
 
 ### Data persistence
 
-Everything MotionBase needs to keep is under `DATA_DIR`: the SQLite database (`motionbase.db`) and generated thumbnails. Mount that to a persistent location (Docker named volume or an Unraid appdata path) so tags/favorites/notes survive container recreation. `MEDIA_DIR` only needs to be readable — MotionBase reads your files but doesn't need to modify them (except when renaming a file from the UI, or writing new downloads/uploads into it).
+Everything MotionBase needs to keep is under `DATA_DIR`: the SQLite database (`motionbase.db`), generated thumbnails (`thumbnails/`) and cached agent frames (`frames/`, safe to delete). Database schema upgrades run automatically on startup (tracked by `PRAGMA user_version`, additive only); before applying an upgrade to an existing database a consistent copy is written next to it as `motionbase.db.pre-vN-<timestamp>.bak`. Mount that to a persistent location (Docker named volume or an Unraid appdata path) so tags/favorites/notes survive container recreation. `MEDIA_DIR` only needs to be readable — MotionBase reads your files but doesn't need to modify them (except when renaming a file from the UI, or writing new downloads/uploads into it).
 
 ### A note on `yt-dlp` cookies
 
 If you use URL import against sites that require a login (e.g. to download something you have access to but is behind auth), MotionBase can use a `cookies.txt` file for `yt-dlp`. This file contains live session cookies — **never commit it to git** (it's already covered by `.gitignore` via `.data/`), and treat it the same as a password.
+
+## Agent API
+
+MotionBase exposes a token-authenticated API at `/api/agent/v1` for AI agents. Create a token under Settings > Agent API (shown once, stored hashed), then:
+
+```bash
+curl -H "Authorization: Bearer mb_..." http://localhost:3001/api/agent/v1/status
+```
+
+Highlights: list and filter files by review status, fetch evenly spaced frames or a contact sheet (needs `ffmpeg`), batch-update tags/notes/folders with `dry_run` and all-or-nothing validation, claim work with leases, and undo any agent change from the activity log. Agents never modify system categories. Full reference, curl examples and a copy-paste agent prompt: [docs/AGENT_API.md](docs/AGENT_API.md); OpenAPI spec: [docs/openapi.json](docs/openapi.json) (regenerate with `npm run openapi` in `backend/`).
+
+> **Security:** the web UI's own API (including `/api/tokens`) has no authentication. Only expose MotionBase on a trusted network or behind an authenticating reverse proxy.
+
+## Tests
+
+```bash
+cd backend
+npm test        # node:test; frame/contact-sheet tests are skipped when ffmpeg is not installed
+```
