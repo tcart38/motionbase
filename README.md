@@ -12,6 +12,7 @@ A self-hosted library for motion and graphic design inspiration. MotionBase watc
 - **Player**: range-request streaming with keyboard control (space, `m`, `f`, `,`/`.` or PgUp/PgDn frame step, `[`/`]` speed, Shift+M folder), a resizable side panel with Tags, Notes (autosaved) and Info tabs, favorites and download.
 - **Add media**: drag-and-drop upload, or paste a video URL and MotionBase downloads it with `yt-dlp` (optionally using a `cookies.txt` you paste in Settings) and scans it in.
 - **Agent API**: let an AI agent (or script) triage the Inbox: view frames and contact sheets, apply tags, notes and folders in atomic, dry-runnable batches, with an undoable activity log. Manage tokens, the "require my confirmation" switch and the activity log under Settings > Agent API. See [docs/AGENT_API.md](docs/AGENT_API.md). Any MCP-capable AI tool (Claude, Cursor, VS Code, Gemini CLI, ...) can connect natively: MotionBase serves **MCP at `/mcp`** (just a URL and your token), with a local stdio option too ([docs/MCP.md](docs/MCP.md)).
+- **Optional accounts**: off by default. Turn on login to give each person their own account (admin and user roles), see who uploaded each file, filter and sort by uploader, and read a per-file History of who changed what (agent changes are attributed to the token and its owner). See [docs/ACCOUNTS.md](docs/ACCOUNTS.md).
 - **Command palette and shortcuts**: `Ctrl/Cmd+K` jumps to pages, folders, tags and files and runs actions; `?` lists every shortcut; `g l`, `g i`, `g a`, `g s` go to Library, Inbox, Add Media and Settings.
 - **Light, dark or system theme**, keyboard-accessible UI, responsive down to phone widths.
 
@@ -84,6 +85,7 @@ The current app version is shown in the app under **Settings**, sourced from `ba
 | `DATA_DIR`      | `/data` | Writable folder for the SQLite DB and generated thumbnails. Should be a persistent volume/appdata path. |
 | `SCAN_INTERVAL` | `30`    | Minutes between automatic rescans (also editable in-app under Settings). `0` disables auto-scan. |
 | `AGENT_API_TOKEN` | —     | Optional static bearer token for the [Agent API](docs/AGENT_API.md), in addition to tokens created in Settings. |
+| `TRUST_PROXY`   | —       | Set to `1` behind a reverse proxy so the login rate limit uses the real client address (`X-Forwarded-For`). |
 | `FRAME_CONCURRENCY` | `2`   | Max simultaneous `ffmpeg` processes for agent frame/contact-sheet extraction. |
 | `NODE_ENV`      | —       | Set to `production` in the Docker image; enables serving the built frontend. |
 
@@ -105,7 +107,7 @@ curl -H "Authorization: Bearer mb_..." http://localhost:3001/api/agent/v1/status
 
 Highlights: list and filter files by review status, fetch evenly spaced frames or a contact sheet (needs `ffmpeg`), batch-update tags/notes/folders with `dry_run` and all-or-nothing validation, claim work with leases, and undo any agent change from the activity log. Agents never modify system categories. Full reference, curl examples and a copy-paste agent prompt: [docs/AGENT_API.md](docs/AGENT_API.md); OpenAPI spec: [docs/openapi.json](docs/openapi.json) (regenerate with `npm run openapi` in `backend/`).
 
-> **Security:** the web UI's own API (including `/api/tokens`) has no authentication. Only expose MotionBase on a trusted network or behind an authenticating reverse proxy.
+> **Security:** login is off by default, and then the web UI's own API (including `/api/tokens`) has no authentication. Only expose MotionBase on a trusted network, or turn on accounts ([docs/ACCOUNTS.md](docs/ACCOUNTS.md)) and put it behind an HTTPS reverse proxy. If you are locked out, `docker exec -it <container> node src/cli/reset-password.js --disable-login` turns login off again.
 
 ## Tests
 

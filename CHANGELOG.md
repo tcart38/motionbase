@@ -5,6 +5,10 @@ All notable changes to MotionBase are documented here. The format follows [Keep 
 ## [Unreleased]
 
 ### Added
+- Optional accounts (migration 4), off by default. First-run setup creates an admin and turns login on; admins add users (admin or user role), reset passwords and disable accounts. Scrypt-hashed passwords, hashed 30-day sliding sessions in an HttpOnly cookie, login rate limit, same-origin checks on cookie-authenticated writes, an admin audit log (`/api/admin/audit`) and a recovery command (`node src/cli/reset-password.js`, with `--disable-login`). The Agent API and MCP keep bearer-token auth and work with login on or off. Agent tokens now belong to the user who created them. Details in `docs/ACCOUNTS.md`.
+- Uploader tracking: files record who added them and how (`uploader`, `upload_source`); the file list filters by `uploader` and sorts by `sort=uploader`; agent file objects include the uploader's name and accept an `uploader` filter.
+- Per-file History: `GET /api/files/{id}/history` lists who tagged, annotated, moved, favorited, reviewed, renamed, trashed, restored or reverted a file, including agent changes (shown as `<token> (agent)`).
+- New environment variable `TRUST_PROXY=1` to use the real client address behind a reverse proxy.
 - Delete with Undo: videos move to a Trash (soft delete, migration 3) from the Library (card menu and bulk bar) and the Player (button or Del key), with an Undo toast. The Trash page restores or permanently deletes (which also removes the file from the media folder, with confirmation). Trashed files are hidden from the Library, folder counts and the agent API, and the scanner won't re-import them.
 - URL import: source details (author, link, platform, post date when the site provides it, and the description/caption) are saved into the file's Notes on download, without overwriting existing notes. For LinkedIn posts, yt-dlp leaves the author and date empty (the page now uses `VideoObject.creator`, which its extractor ignores), so MotionBase reads them, plus the full caption, from the post page itself, falling back to parsing the page title.
 - MCP for any AI tool: MotionBase serves MCP over streamable HTTP at `/mcp` (same bearer tokens), plus a local stdio server (`mcp/`, also in the image at `/app/mcp`). Native tools over the Agent API, including contact sheets and frames as images. Setup in `docs/MCP.md` and in the Settings > Agent API guide (Connect an AI tab).
@@ -12,6 +16,8 @@ All notable changes to MotionBase are documented here. The format follows [Keep 
 - Player: Page Up / Page Down step one frame back / forward; a folder button above the side-panel tabs (Shift+M).
 
 ### Changed
+- Settings writes, cookies upload, permanent delete (purge), agent-activity revert and import-from-disk-structure are admin-only when login is on.
+- The scan timer no longer keeps the Node process alive by itself.
 - Sidebar: explicit collapse/expand button replaces the draggable-looking edge rail.
 
 ## [2.0.0]

@@ -6,8 +6,9 @@ Base URL: `http://<host>:<port>/api/agent/v1`
 
 ## Safety model
 
-- **Tokens.** Create one per agent in the UI (Settings > Agent API) or via `POST /api/tokens`. The `mb_...` token is shown **once**; only its SHA-256 hash is stored. Revoke with `DELETE /api/tokens/{id}`. Alternatively set the `AGENT_API_TOKEN` environment variable for a single static token (reported as agent `env`).
-- **The rest of the MotionBase API is unauthenticated.** `/api/tokens`, `/api/activity` and the web UI API have no login, like the rest of the app, so anyone who can reach the port can mint tokens. Run MotionBase on a trusted network or behind a reverse proxy with authentication. Do not expose it to the internet as is.
+- **Tokens.** Create one per agent in the UI (Settings > Agent API) or via `POST /api/tokens`. The `mb_...` token is shown **once**; only its SHA-256 hash is stored. Revoke with `DELETE /api/tokens/{id}`. With [accounts](ACCOUNTS.md) turned on, a token belongs to the user who created it (users see and revoke their own, admins see everyone's) and stops working while that user is disabled. Alternatively set the `AGENT_API_TOKEN` environment variable for a single static token (reported as agent `env`).
+- **Login is optional.** With it off (the default), `/api/tokens`, `/api/activity` and the web UI API have no authentication, so anyone who can reach the port can mint tokens. Run MotionBase on a trusted network, or turn on [accounts](ACCOUNTS.md) and use an HTTPS reverse proxy. The Agent API itself always needs a bearer token and is not affected by browser logins.
+- **Attribution.** Agent changes appear in each file's History as `<token name> (agent)` and are attributed to the token's owner (the env token `AGENT_API_TOKEN` has no owner). Files added by people show an `uploader`.
 - **Agents cannot touch system categories** (currently "Aspect Ratio"); such tags are preserved and any attempt to add/remove them is rejected.
 - **Atomic bulk writes.** Up to 500 updates per request. Every item is validated first; if any fails, nothing is applied and the response is `422` with per-item errors. `dry_run: true` returns exactly what would change and writes nothing.
 - **Undo.** Every write is recorded in the activity log with before/after snapshots. Revert from the UI or `POST /api/activity/{id}/revert`. Reverting restores the affected files to their earlier state (tags, notes, folder, favorite, review state); it overwrites later edits to those files.
@@ -53,7 +54,7 @@ curl -H "$AUTH" "$MB/files?cursor=120&limit=50"
 curl -H "$AUTH" $MB/files/42
 ```
 
-Query: `status`, `folder` (id, path or `none`), `subfolders` (`1` default, `0` = that folder only), `tags` (comma-separated tag ids), `search` (filename or notes), `favorites=1`, `limit`, `cursor`. A file contains `tags` (with `source`), `tags_by_category`, `folder_path`, `notes`, `review` and `urls`.
+Query: `status`, `folder` (id, path or `none`), `subfolders` (`1` default, `0` = that folder only), `tags` (comma-separated tag ids), `search` (filename or notes), `favorites=1`, `uploader` (user id, or `none` for unknown), `limit`, `cursor`. A file contains `uploader` (display name of whoever added it, or `null`), `upload_source` (`user`, `import`, `scan` or `null`), `tags` (with `source`), `tags_by_category`, `folder_path`, `notes`, `review` and `urls`.
 
 ### Looking at a clip
 
@@ -131,7 +132,7 @@ curl -H "$AUTH" -H 'Content-Type: application/json' -X POST $MB/queue/release -d
 
 ```bash
 curl -H "$AUTH" "$MB/activity?limit=20"        # newest first; ?id=N returns before/after snapshots
-curl -X POST http://localhost:3001/api/activity/17/revert    # UI endpoint, no token
+curl -X POST http://localhost:3001/api/activity/17/revert    # UI endpoint, no token (admin session when login is on)
 ```
 
 Taxonomy creations appear in the log but cannot be reverted (delete the tag/category/folder in Settings instead).
