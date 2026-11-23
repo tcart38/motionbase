@@ -11,6 +11,8 @@ export const config = {
   get mediaDir() { return str('MEDIA_DIR', '/media') },
   get dataDir() { return str('DATA_DIR', '/data') },
   get dbPath() { return path.join(this.dataDir, 'motionbase.db') },
+  // Server-side export jobs write here (never inside MEDIA_DIR). Override with EXPORT_DIR.
+  get exportDir() { return process.env.EXPORT_DIR || path.join(this.dataDir, 'exports') },
   get thumbnailsDir() { return path.join(this.dataDir, 'thumbnails') },
   get framesDir() { return path.join(this.dataDir, 'frames') },
   get scanInterval() { return int('SCAN_INTERVAL', 30) },

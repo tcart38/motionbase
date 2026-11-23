@@ -19,6 +19,7 @@ import mcpRouter from './routes/mcp.js'
 import authRouter from './routes/auth.js'
 import usersRouter from './routes/users.js'
 import adminRouter from './routes/admin.js'
+import exportRouter, { metadataImportRouter } from './routes/export.js'
 import { sessionMiddleware } from './middleware/session.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -28,7 +29,9 @@ export function createApp({ serveFrontend = config.isProd } = {}) {
   const app = express()
   if (config.trustProxy) app.set('trust proxy', true)
   app.use(cors())
-  app.use(express.json({ limit: '2mb' }))
+  // The metadata restore route takes a much larger JSON body; it parses its own (after the admin check).
+  const smallJson = express.json({ limit: '2mb' })
+  app.use((req, res, next) => (req.path === '/api/import/metadata' ? next() : smallJson(req, res, next)))
 
   // Optional login: sets req.user / req.authEnabled and enforces sessions when login is on.
   app.use(sessionMiddleware)
@@ -45,7 +48,9 @@ export function createApp({ serveFrontend = config.isProd } = {}) {
   app.use('/api/tags', tagsRouter)
   app.use('/api/categories', categoriesRouter)
   app.use('/api/settings', settingsRouter)
+  app.use('/api/import/metadata', metadataImportRouter)
   app.use('/api/import', importRouter)
+  app.use('/api/export', exportRouter)
   app.use('/api/cookies', cookiesRouter)
   app.use('/api/upload', uploadRouter)
   app.use('/api/folders', foldersRouter)
