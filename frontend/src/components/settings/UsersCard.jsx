@@ -11,7 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardAction }
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select.jsx'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.jsx'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog.jsx'
-import { createUser, getUsers, resetUserPassword, updateUser } from '@/api/client.js'
+import { approveUser, createUser, getUsers, rejectUser, resetUserPassword, updateUser } from '@/api/client.js'
 import { useAuth } from '@/context/AuthContext.jsx'
 import UserAvatar from '@/components/UserAvatar.jsx'
 import { MIN_PASSWORD } from '@/components/account/ChangePasswordDialog.jsx'
@@ -116,11 +116,16 @@ export default function UsersCard() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
     onError: (e) => { toast.error(e.message); qc.invalidateQueries({ queryKey: ['users'] }) },
   })
+  const review = useMutation({
+    mutationFn: ({ id, approve }) => (approve ? approveUser(id) : rejectUser(id)),
+    onSuccess: (_, { approve, name }) => { toast.success(approve ? `Approved ${name}` : `Rejected ${name}`); qc.invalidateQueries({ queryKey: ['users'] }) },
+    onError: (e) => { toast.error(e.message); qc.invalidateQueries({ queryKey: ['users'] }) },
+  })
   const users = data?.users ?? []
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Users</CardTitle>
+        <CardTitle className="flex items-center gap-2">Users {data?.pending_count > 0 && <Badge>{data.pending_count} pending</Badge>}</CardTitle>
         <CardDescription>
           Accounts are disabled, never deleted, so history keeps everyone's name. There is always at least one active administrator.
         </CardDescription>
@@ -152,22 +157,33 @@ export default function UsersCard() {
                             {u.display_name}
                             {self && <Badge variant="outline">you</Badge>}
                             {u.disabled && <Badge variant="secondary">disabled</Badge>}
+                            {u.pending && <Badge variant="outline" className="border-amber-500/50 text-amber-700 dark:text-amber-400">Pending</Badge>}
                           </p>
                           <p className="truncate text-muted-foreground">@{u.username}</p>
                         </div>
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Select items={ROLES} value={u.role} onValueChange={(role) => role !== u.role && patch.mutate({ id: u.id, role })}>
+                      {u.pending ? <span className="text-muted-foreground">User</span> : <Select items={ROLES} value={u.role} onValueChange={(role) => role !== u.role && patch.mutate({ id: u.id, role })}>
                         <SelectTrigger size="sm" className="w-24" aria-label={`Role of ${u.display_name}`}><SelectValue /></SelectTrigger>
                         <SelectContent>{ROLES.map((r) => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}</SelectContent>
-                      </Select>
+                      </Select>}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{u.file_count}</TableCell>
                     <TableCell className="whitespace-nowrap text-muted-foreground" title={u.last_login_at ? absoluteTime(u.last_login_at) : undefined}>
                       {u.last_login_at ? relativeTime(u.last_login_at) : 'never'}
                     </TableCell>
                     <TableCell>
+                      {u.pending ? (
+                        <div className="flex justify-end gap-1">
+                          <Button size="sm" disabled={review.isPending} onClick={() => review.mutate({ id: u.id, approve: true, name: u.display_name })} aria-label={`Approve ${u.display_name}`}>
+                            <RiCheckLine data-icon="inline-start" /> Approve
+                          </Button>
+                          <Button variant="outline" size="sm" disabled={review.isPending} onClick={() => review.mutate({ id: u.id, approve: false, name: u.display_name })} aria-label={`Reject ${u.display_name}`}>
+                            <RiProhibitedLine data-icon="inline-start" /> Reject
+                          </Button>
+                        </div>
+                      ) : (
                       <div className="flex justify-end gap-1">
                         <Button variant="outline" size="sm" onClick={() => setResetting(u)} aria-label={`Reset password for ${u.display_name}`}>
                           <RiKey2Line data-icon="inline-start" /> Reset
@@ -180,6 +196,7 @@ export default function UsersCard() {
                           {u.disabled ? 'Enable' : 'Disable'}
                         </Button>
                       </div>
+                      )}
                     </TableCell>
                   </TableRow>
                 )

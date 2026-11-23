@@ -18,10 +18,12 @@ Over the API:
 
 | Call | Purpose |
 |---|---|
-| `GET /api/auth/status` | Public. `{enabled, setup_required, user, version}` |
+| `GET /api/auth/status` | Public. `{enabled, setup_required, user, signups_enabled, signups_require_approval, version}` |
 | `GET /api/auth/directory` | Any signed-in user (or anyone while login is off). `{users:[{id, display_name, username}]}` for every account including disabled ones; used by the Library's "Uploaded by" filter |
 | `POST /api/auth/setup` | First run, only while no users exist. Creates the admin, turns login on, signs in |
 | `POST /api/auth/enable` | Login is off but accounts exist: an admin's `{username, password}` turns it on |
+| `POST /api/auth/signup` | Public, only while login and sign-ups are on. `{username, display_name, password}` creates a normal user (any `role` is ignored). `{pending:true}` when approval is required, otherwise signs in and returns `{user}`. `409` duplicate username, `429` + `Retry-After` when rate limited |
+| `POST /api/users/{id}/approve`, `/reject` | Admin. Approve or reject a pending sign-up |
 | `POST /api/auth/login`, `/logout` | Sign in or out |
 | `POST /api/auth/password`, `PATCH /api/auth/me` | Change own password / display name |
 | `POST /api/auth/disable` | Admin turns login off (`{password}`) |
@@ -32,6 +34,15 @@ Over the API:
 - **Sidebar footer**: your name and role, with Change password and Sign out.
 - **Library**: each card shows who added the file ("Library scan", "Imported" or the person's name). Sort by Uploader, or use the "Uploaded by" filter (the URL keeps `uploader=<id>` or `uploader=none`). The filter lists everyone from `GET /api/auth/directory`, including disabled accounts.
 - **Player > History**: a timeline of changes (newest first) ending with the upload entry. Agent changes show the token name with an AI badge.
+
+## Self sign-up (optional)
+
+Off by default. An admin turns it on under Settings > Accounts (it only has an effect while login is on):
+
+- **Allow sign-ups** (`signups_enabled`): the sign-in page shows "Create account" (username, display name, password with 10+ characters, confirmation).
+- **Require admin approval** (`signups_require_approval`, on by default): new accounts are created *pending*. They cannot sign in (a correct password answers `403` "Your account is waiting for admin approval"; a wrong one still gives the generic `401`) and have no sessions or agent tokens. Admins see a Pending badge and Approve / Reject buttons in the Users table, and a count on the Accounts tab. Approve lets them sign in. Reject disables the account permanently; the row stays so history and the audit log remain consistent. With approval off, people are signed in right after signing up.
+
+Sign-ups always create role `user`; promote someone to admin afterwards if needed. Usernames, display names and passwords follow the same rules as admin-created users, and usernames are unique case-insensitively. Sign-ups are limited to 5 per hour per IP and 50 per day overall (in memory, reset on restart); behind a reverse proxy set `TRUST_PROXY=1` so the per-IP limit sees the real client. Audit entries: `signup`, `signup_approved`, `signup_rejected`. Consider enabling this only on a trusted network. Existing accounts are treated as approved by the upgrade (migration 5, additive; the runner backs up the database first).
 
 ## Roles
 

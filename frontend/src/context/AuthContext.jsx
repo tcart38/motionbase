@@ -45,6 +45,8 @@ export function AuthProvider({ children }) {
       retry: refetch,
       enabled,
       user,
+      signupsEnabled: enabled && !!data?.signups_enabled,
+      signupsRequireApproval: data?.signups_require_approval !== false,
       setupRequired: !!data?.setup_required,
       version: data?.version,
       // With login off everyone has full access, as before accounts existed.

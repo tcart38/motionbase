@@ -1,9 +1,10 @@
 import React, { useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { RiShieldUserLine, RiLockUnlockLine, RiKey2Line, RiLoginBoxLine, RiUserAddLine, RiLogoutBoxRLine } from '@remixicon/react'
 import { Button } from '@/components/ui/button.jsx'
 import { Input } from '@/components/ui/input.jsx'
+import { Switch } from '@/components/ui/switch.jsx'
 import { Label } from '@/components/ui/label.jsx'
 import { Badge } from '@/components/ui/badge.jsx'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx'
@@ -11,7 +12,7 @@ import {
   AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader,
   AlertDialogMedia, AlertDialogTitle,
 } from '@/components/ui/alert-dialog.jsx'
-import { authDisable, authEnable, authSetup, updateMe } from '@/api/client.js'
+import { authDisable, authEnable, authSetup, getSettings, updateMe, updateSettings } from '@/api/client.js'
 import { useAuth } from '@/context/AuthContext.jsx'
 import UserAvatar from '@/components/UserAvatar.jsx'
 import ChangePasswordDialog, { MIN_PASSWORD } from '@/components/account/ChangePasswordDialog.jsx'
@@ -148,6 +149,49 @@ function MyAccountCard() {
   )
 }
 
+/** Admin: let people create their own (normal user) accounts from the sign-in page. Off by default. */
+function SignupsCard() {
+  const qc = useQueryClient()
+  const { data } = useQuery({ queryKey: ['settings'], queryFn: getSettings })
+  const enabled = data?.signups_enabled === 'true'
+  const approval = data?.signups_require_approval !== 'false'
+  const m = useMutation({
+    mutationFn: (body) => updateSettings(body),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['settings'] }); qc.invalidateQueries({ queryKey: ['auth', 'status'] }) },
+    onError: (e) => toast.error(e.message),
+  })
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Sign-ups</CardTitle>
+        <CardDescription>
+          Let people create their own account from the sign-in page. New accounts are always normal users, never administrators.
+          Consider enabling this only on a trusted network.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="grid gap-1">
+            <Label htmlFor="signups-enabled" className="text-sm">Allow sign-ups</Label>
+            <p className="text-xs text-muted-foreground">Off by default. When on, the sign-in page offers "Create account".</p>
+          </div>
+          <Switch id="signups-enabled" checked={enabled} disabled={!data || m.isPending} onCheckedChange={(v) => m.mutate({ signups_enabled: v })} className="mt-0.5" />
+        </div>
+        <div className="flex items-start justify-between gap-4">
+          <div className="grid gap-1">
+            <Label htmlFor="signups-approval" className="text-sm">Require admin approval</Label>
+            <p className="text-xs text-muted-foreground">
+              When on, new accounts cannot sign in until an administrator approves them under Users below.
+              When off, people are signed in as soon as they sign up.
+            </p>
+          </div>
+          <Switch id="signups-approval" checked={approval} disabled={!data || m.isPending} onCheckedChange={(v) => m.mutate({ signups_require_approval: v })} className="mt-0.5" />
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 function TurnOffCard() {
   const { reset } = useAuth()
   const [open, setOpen] = useState(false)
@@ -202,6 +246,7 @@ export default function AccountsTab() {
       <MyAccountCard />
       {user?.role === 'admin' ? (
         <>
+          <SignupsCard />
           <UsersCard />
           <AuditCard />
           <TurnOffCard />
