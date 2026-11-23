@@ -1,7 +1,7 @@
 import { useCallback, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { bulkUpdateFiles, patchFile } from '@/api/client.js'
+import { bulkUpdateFiles, patchFile, trashFiles } from '@/api/client.js'
 
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`
 
@@ -106,5 +106,26 @@ export function useBulkActions() {
     )
   }, [run])
 
-  return { moveToFolder, addTag, removeTag, setFavorite, markReviewed, undoLast, refresh }
+  /** Soft delete: files go to the Trash (nothing is removed from disk) and the toast offers Undo. */
+  const deleteFiles = useCallback((files) => {
+    if (!files.length) return Promise.resolve(true)
+    const ids = files.map((f) => f.id)
+    return run(
+      `Moved ${plural(ids.length, 'file')} to Trash`,
+      () => trashFiles(ids, true),
+      () => trashFiles(ids, false),
+    )
+  }, [run])
+
+  const restoreFiles = useCallback((files) => {
+    if (!files.length) return Promise.resolve(true)
+    const ids = files.map((f) => f.id)
+    return run(
+      `Restored ${plural(ids.length, 'file')}`,
+      () => trashFiles(ids, false),
+      () => trashFiles(ids, true),
+    )
+  }, [run])
+
+  return { deleteFiles, restoreFiles, moveToFolder, addTag, removeTag, setFavorite, markReviewed, undoLast, refresh }
 }

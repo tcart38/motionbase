@@ -31,6 +31,8 @@ export const patchFile = (id, body) => request(`/files/${id}`, { method: 'PATCH'
 export const deleteFile = (id) => request(`/files/${id}`, { method: 'DELETE' })
 
 export const getFileCounts = () => request('/files/counts')
+export const trashFiles = (file_ids, deleted = true) => request('/files/trash', { method: 'POST', body: { file_ids, deleted } })
+export const purgeFiles = (body) => request('/files/purge', { method: 'POST', body })
 export const bulkUpdateFiles = (body) => request('/files/bulk', { method: 'POST', body })
 
 // Folders

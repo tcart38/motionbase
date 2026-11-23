@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   RiArrowLeftLine, RiArrowRightLine, RiCheckLine, RiCloseLine, RiDownloadLine, RiImageLine, RiPencilLine,
-  RiStarFill, RiStarLine, RiCheckDoubleLine, RiFolderLine, RiFolderOpenLine, RiSparklingLine,
+  RiStarFill, RiStarLine, RiCheckDoubleLine, RiFolderLine, RiFolderOpenLine, RiDeleteBinLine, RiSparklingLine,
 } from '@remixicon/react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button.jsx'
@@ -111,6 +111,27 @@ export default function Player() {
     } finally { setNextLoading(false) }
   }, [id, searchParams, navigate])
 
+  // Move to Trash (soft delete, with Undo toast), then continue to the next file in this view.
+  const deleteCurrent = useCallback(async () => {
+    if (!file) return
+    let nextId = null
+    try { nextId = (await getNextFile(id, Object.fromEntries(searchParams))).nextId } catch {}
+    const ok = await bulk.deleteFiles([file])
+    if (!ok) return
+    if (nextId && String(nextId) !== String(id)) navigate(`/player/${nextId}?${searchParams.toString()}`, { replace: true })
+    else navigate(`/library?${searchParams.toString()}`, { replace: true })
+  }, [file, id, searchParams, navigate, bulk])
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== 'Delete' || e.metaKey || e.ctrlKey || e.altKey) return
+      if (e.target instanceof HTMLElement && e.target.closest('input, textarea, select, [contenteditable=true], [role=dialog]')) return
+      e.preventDefault(); deleteCurrent()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [deleteCurrent])
+
   // ----- Filename editing
   const [editingName, setEditingName] = useState(false)
   const [draftName, setDraftName] = useState('')
@@ -206,6 +227,9 @@ export default function Player() {
         )}
         <Button variant="outline" render={<a href={downloadUrl(file.id)} download={file.filename} />}>
           <RiDownloadLine data-icon="inline-start" /> <span className="max-sm:sr-only">Download</span>
+        </Button>
+        <Button variant="outline" onClick={deleteCurrent} aria-label="Move to Trash">
+          <RiDeleteBinLine data-icon="inline-start" /> <span className="max-sm:sr-only">Delete</span>
         </Button>
         <Button onClick={goNext} disabled={nextLoading}>
           Next <RiArrowRightLine data-icon="inline-end" />

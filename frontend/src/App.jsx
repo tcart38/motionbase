@@ -5,6 +5,7 @@ import Library from './pages/Library.jsx'
 import Inbox from './pages/Inbox.jsx'
 import AddMedia from './pages/AddMedia.jsx'
 import Player from './pages/Player.jsx'
+import Trash from './pages/Trash.jsx'
 import Settings from './pages/Settings.jsx'
 
 export default function App() {
@@ -17,6 +18,7 @@ export default function App() {
           <Route path="inbox" element={<Inbox />} />
           <Route path="add-media" element={<AddMedia />} />
           <Route path="player/:id" element={<Player />} />
+          <Route path="trash" element={<Trash />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>

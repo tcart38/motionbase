@@ -2,6 +2,15 @@
 
 All notable changes to MotionBase are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- Delete with Undo: videos move to a Trash (soft delete, migration 3) from the Library (card menu and bulk bar) and the Player (button or Del key), with an Undo toast. The Trash page restores or permanently deletes (which also removes the file from the media folder, with confirmation). Trashed files are hidden from the Library, folder counts and the agent API, and the scanner won't re-import them.
+- Player: Page Up / Page Down step one frame back / forward; a folder button above the side-panel tabs (Shift+M).
+
+### Changed
+- Sidebar: explicit collapse/expand button replaces the draggable-looking edge rail.
+
 ## [2.0.0]
 
 ### Added

@@ -5,7 +5,7 @@ export const isMac = typeof navigator !== 'undefined' && /mac|iphone|ipad/i.test
 
 /** Render a key token for display: 'mod' becomes Cmd or Ctrl. */
 export const keyLabel = (k) => ({
-  mod: isMac ? '⌘' : 'Ctrl', space: 'Space', esc: 'Esc', left: '←', right: '→', shift: 'Shift',
+  mod: isMac ? '⌘' : 'Ctrl', space: 'Space', esc: 'Esc', left: '←', right: '→', shift: 'Shift', delete: 'Del',
 }[k] ?? k)
 
 export const SHORTCUT_SECTIONS = [
@@ -17,6 +17,7 @@ export const SHORTCUT_SECTIONS = [
       { keys: ['g', 'l'], label: 'Go to Library' },
       { keys: ['g', 'i'], label: 'Go to Inbox' },
       { keys: ['g', 'a'], label: 'Go to Add Media' },
+      { keys: ['g', 't'], label: 'Go to Trash' },
       { keys: ['g', 's'], label: 'Go to Settings' },
     ],
   },
@@ -54,6 +55,7 @@ export const SHORTCUT_SECTIONS = [
       { keys: ['f'], label: 'Fullscreen' },
       { keys: ['l'], label: 'Loop' },
       { keys: ['shift', 'm'], label: 'Choose folder for this file' },
+      { keys: ['delete'], label: 'Move this file to Trash (Undo in the toast)' },
     ],
   },
 ]

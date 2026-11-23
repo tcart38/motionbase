@@ -192,6 +192,7 @@ export default function Library() {
   }, [])
 
   const handleMoveOne = useCallback((file) => setMoveTarget([file]), [])
+  const handleDeleteOne = useCallback((file) => { setSelectedIds((s) => { const n = new Set(s); n.delete(file.id); return n }); return bulk.deleteFiles([file]) }, [bulk])
   const handleMarkReviewedOne = useCallback((file) => bulk.markReviewed([file]), [bulk])
 
   const handleRandom = () => {
@@ -326,6 +327,7 @@ export default function Library() {
                   onDragStartFiles={handleDragStart}
                   onMove={handleMoveOne}
                   onMarkReviewed={handleMarkReviewedOne}
+                  onDelete={handleDeleteOne}
                 />
               ))}
             </div>
@@ -347,6 +349,7 @@ export default function Library() {
             onMove={() => setMoveTarget(selectedFiles)}
             onFavorite={(v) => bulk.setFavorite(selectedFiles, v)}
             onMarkReviewed={async () => { if (await bulk.markReviewed(selectedFiles)) clearSelection() }}
+            onDelete={async () => { if (await bulk.deleteFiles(selectedFiles)) clearSelection() }}
           />
         )}
       </div>

@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import {
-  RiCloseLine, RiPriceTag3Line, RiFolderTransferLine, RiStarLine, RiCheckDoubleLine, RiCheckLine,
+  RiCloseLine, RiPriceTag3Line, RiFolderTransferLine, RiStarLine, RiCheckDoubleLine, RiCheckLine, RiDeleteBinLine,
 } from '@remixicon/react'
 import { Button } from '@/components/ui/button.jsx'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover.jsx'
@@ -50,7 +50,7 @@ function BulkTagPopover({ groups, files, onAdd, onRemove }) {
 
 /** Sticky action bar shown while files are selected. `files` are the selected file objects. */
 export default function BulkBar({
-  files, total, groups, onClear, onSelectAll, onAddTag, onRemoveTag, onMove, onFavorite, onMarkReviewed,
+  files, total, groups, onClear, onSelectAll, onAddTag, onRemoveTag, onMove, onFavorite, onMarkReviewed, onDelete,
 }) {
   const allFav = files.length > 0 && files.every((f) => f.is_favorite)
   return (
@@ -67,6 +67,7 @@ export default function BulkBar({
         <RiStarLine data-icon="inline-start" /> {allFav ? 'Unfavorite' : 'Favorite'}
       </Button>
       <Button variant="outline" onClick={onMarkReviewed}><RiCheckDoubleLine data-icon="inline-start" /> Mark reviewed</Button>
+      <Button variant="outline" onClick={onDelete} className="text-destructive"><RiDeleteBinLine data-icon="inline-start" /> Delete</Button>
       <Separator orientation="vertical" className="h-5" />
       {files.length < total && <Button variant="ghost" onClick={onSelectAll}>Select all {total}</Button>}
       <Button variant="ghost" size="icon" onClick={onClear} aria-label="Clear selection"><RiCloseLine /></Button>

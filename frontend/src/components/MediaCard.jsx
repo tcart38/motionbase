@@ -2,7 +2,7 @@ import React, { memo, useCallback, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import {
   RiPlayFill, RiImageLine, RiFilmLine, RiStarLine, RiStarFill, RiSparklingLine, RiExternalLinkLine,
-  RiFolderTransferLine, RiCheckDoubleLine,
+  RiFolderTransferLine, RiDeleteBinLine, RiCheckDoubleLine,
 } from '@remixicon/react'
 import { Badge } from '@/components/ui/badge.jsx'
 import { Checkbox } from '@/components/ui/checkbox.jsx'
@@ -29,7 +29,7 @@ const isNewFile = (file) => file.date_added && (Date.now() - new Date(file.date_
  * - Hovering a video scrubs it with the mouse position.
  */
 function MediaCard({
-  file, selectMode, selected, onSelect, onFavoriteToggle, onPlay, onDragStartFiles, onMove, onMarkReviewed,
+  file, selectMode, selected, onSelect, onFavoriteToggle, onPlay, onDragStartFiles, onMove, onMarkReviewed, onDelete,
 }) {
   const location = useLocation()
   const videoRef = useRef(null)
@@ -211,6 +211,8 @@ function MediaCard({
         {!file.reviewed_at && (
           <ContextMenuItem onClick={() => onMarkReviewed(file)}><RiCheckDoubleLine /> Mark reviewed</ContextMenuItem>
         )}
+      <ContextMenuSeparator />
+        <ContextMenuItem variant="destructive" onClick={() => onDelete?.(file)}><RiDeleteBinLine /> Move to Trash</ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
   )

@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  RiFilmLine, RiInboxLine, RiAddCircleLine, RiSettings3Line, RiRefreshLine, RiSearchLine, RiKeyboardLine,
+  RiFilmLine, RiInboxLine, RiAddCircleLine, RiSettings3Line, RiDeleteBinLine, RiRefreshLine, RiSearchLine, RiKeyboardLine,
 } from '@remixicon/react'
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent,
@@ -19,6 +19,7 @@ const navItems = [
   { to: '/library', icon: RiFilmLine, label: 'Library', total: true },
   { to: '/inbox', icon: RiInboxLine, label: 'Inbox', badge: true },
   { to: '/add-media', icon: RiAddCircleLine, label: 'Add Media' },
+  { to: '/trash', icon: RiDeleteBinLine, label: 'Trash', trash: true },
   { to: '/settings', icon: RiSettings3Line, label: 'Settings' },
 ]
 
@@ -37,6 +38,7 @@ export default function Layout() {
     'g l': () => navigate('/library'),
     'g i': () => navigate('/inbox'),
     'g a': () => navigate('/add-media'),
+    'g t': () => navigate('/trash'),
     'g s': () => navigate('/settings'),
   })
   const inFolder = pathname === '/library' && params.has('folder')
@@ -64,7 +66,7 @@ export default function Layout() {
           <SidebarGroup>
             <SidebarGroupContent>
               <SidebarMenu>
-                {navItems.map(({ to, icon: Icon, label, badge, total }) => (
+                {navItems.map(({ to, icon: Icon, label, badge, total, trash }) => (
                   <SidebarMenuItem key={to}>
                     <SidebarMenuButton
                       tooltip={label}
@@ -76,6 +78,9 @@ export default function Layout() {
                     </SidebarMenuButton>
                     {total && counts && (
                       <SidebarMenuBadge aria-label={`${counts.total} files`}>{counts.total}</SidebarMenuBadge>
+                    )}
+                    {trash && counts?.trash > 0 && (
+                      <SidebarMenuBadge aria-label={`${counts.trash} in trash`}>{counts.trash}</SidebarMenuBadge>
                     )}
                     {badge && inboxCount > 0 && (
                       <SidebarMenuBadge aria-label={`${inboxCount} to review`}>
