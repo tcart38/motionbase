@@ -1,12 +1,15 @@
 import { useQuery } from '@tanstack/react-query'
-import { getFiles } from '@/api/client.js'
+import { getFileCounts } from '@/api/client.js'
 
-// Inbox = media that still needs triage. Until review tracking is exposed on the
-// UI file list, "untagged" is the closest signal.
-export function useInboxCount() {
+/** Counts for the sidebar: inbox (not yet confirmed by a person), needs_review (AI done, awaiting you), total. */
+export function useFileCounts() {
   return useQuery({
-    queryKey: ['inbox-count'],
-    queryFn: async () => (await getFiles({ untagged: '1', limit: 1 })).total ?? 0,
+    queryKey: ['counts'],
+    queryFn: getFileCounts,
     refetchInterval: 60_000,
   })
+}
+
+export function useInboxCount() {
+  return useFileCounts()
 }

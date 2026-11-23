@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { Play, Image, Star, Check } from 'lucide-react'
 import TagChip from './TagChip.jsx'
 import { thumbnailUrl, streamUrl } from '../api/client.js'
+import { setDragFiles } from '../lib/dnd.js'
 
 function formatDuration(secs) {
   if (!secs) return null
@@ -64,6 +65,8 @@ export default function MediaCard({ file, selectMode, selected, onSelect, onFavo
 
   return (
     <button
+      draggable
+      onDragStart={(e) => setDragFiles(e, [file])}
       onClick={() => selectMode ? onSelect() : navigate(`/player/${file.id}${location.search}`)}
       className="card group text-left w-full overflow-hidden transition-all duration-150
                  hover:border-white/[0.12] hover:ring-1 hover:ring-brand/30

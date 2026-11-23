@@ -1,4 +1,4 @@
-import { cn } from "cn"
+import { cn } from "@/lib/utils.js"
 import { RiLoaderLine } from "@remixicon/react"
 
 function Spinner({

@@ -1,5 +1,5 @@
 import { Checkbox as CheckboxPrimitive } from "@base-ui/react/checkbox"
-import { cn } from "cn"
+import { cn } from "@/lib/utils.js"
 import { RiCheckLine } from "@remixicon/react"
 
 function Checkbox({

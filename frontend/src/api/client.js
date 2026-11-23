@@ -30,6 +30,16 @@ export const getNextFile = (id, params = {}) => {
 export const patchFile = (id, body) => request(`/files/${id}`, { method: 'PATCH', body })
 export const deleteFile = (id) => request(`/files/${id}`, { method: 'DELETE' })
 
+export const getFileCounts = () => request('/files/counts')
+export const bulkUpdateFiles = (body) => request('/files/bulk', { method: 'POST', body })
+
+// Folders
+export const getFolders = () => request('/folders')
+export const createFolder = (body) => request('/folders', { method: 'POST', body })
+export const updateFolder = (id, body) => request(`/folders/${id}`, { method: 'PATCH', body })
+export const deleteFolder = (id) => request(`/folders/${id}`, { method: 'DELETE' })
+export const importFoldersFromDisk = (body = {}) => request('/folders/import-from-disk', { method: 'POST', body })
+
 // Import
 export const importUrl = (url) => request('/import', { method: 'POST', body: { url } })
 

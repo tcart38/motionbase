@@ -1,5 +1,5 @@
 import React from 'react'
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useSearchParams } from 'react-router-dom'
 import {
   RiFilmLine, RiInboxLine, RiAddCircleLine, RiSettings3Line, RiRefreshLine,
 } from '@remixicon/react'
@@ -8,11 +8,12 @@ import {
   SidebarHeader, SidebarInset, SidebarMenu, SidebarMenuBadge, SidebarMenuButton,
   SidebarMenuItem, SidebarProvider, SidebarRail, SidebarTrigger,
 } from '@/components/ui/sidebar.jsx'
+import FolderTree from '@/components/FolderTree.jsx'
 import { useScan } from '@/hooks/useScan.js'
-import { useInboxCount } from '@/hooks/useInboxCount.js'
+import { useFileCounts } from '@/hooks/useInboxCount.js'
 
 const navItems = [
-  { to: '/library', icon: RiFilmLine, label: 'Library' },
+  { to: '/library', icon: RiFilmLine, label: 'Library', total: true },
   { to: '/inbox', icon: RiInboxLine, label: 'Inbox', badge: true },
   { to: '/add-media', icon: RiAddCircleLine, label: 'Add Media' },
   { to: '/settings', icon: RiSettings3Line, label: 'Settings' },
@@ -20,8 +21,11 @@ const navItems = [
 
 export default function Layout() {
   const { scanning, scan } = useScan()
-  const { data: inboxCount } = useInboxCount()
+  const { data: counts } = useFileCounts()
+  const inboxCount = counts?.inbox ?? 0
   const { pathname } = useLocation()
+  const [params] = useSearchParams()
+  const inFolder = pathname === '/library' && params.has('folder')
 
   return (
     <SidebarProvider>
@@ -43,16 +47,19 @@ export default function Layout() {
           <SidebarGroup>
             <SidebarGroupContent>
               <SidebarMenu>
-                {navItems.map(({ to, icon: Icon, label, badge }) => (
+                {navItems.map(({ to, icon: Icon, label, badge, total }) => (
                   <SidebarMenuItem key={to}>
                     <SidebarMenuButton
                       tooltip={label}
-                      isActive={pathname === to || pathname.startsWith(`${to}/`)}
+                      isActive={(pathname === to || pathname.startsWith(`${to}/`)) && !(total && inFolder)}
                       render={<NavLink to={to} />}
                     >
                       <Icon />
                       <span>{label}</span>
                     </SidebarMenuButton>
+                    {total && counts && (
+                      <SidebarMenuBadge aria-label={`${counts.total} files`}>{counts.total}</SidebarMenuBadge>
+                    )}
                     {badge && inboxCount > 0 && (
                       <SidebarMenuBadge aria-label={`${inboxCount} to review`}>
                         {inboxCount > 99 ? '99+' : inboxCount}
@@ -63,6 +70,7 @@ export default function Layout() {
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
+          <FolderTree />
         </SidebarContent>
 
         <SidebarFooter>

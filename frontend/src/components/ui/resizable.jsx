@@ -1,4 +1,4 @@
-import { cn } from "cn"
+import { cn } from "@/lib/utils.js"
 import * as ResizablePrimitive from "react-resizable-panels"
 
 function ResizablePanelGroup({
