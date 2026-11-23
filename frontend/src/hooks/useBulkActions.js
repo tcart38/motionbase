@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { bulkUpdateFiles, patchFile } from '@/api/client.js'
@@ -22,6 +22,7 @@ function groupBy(files, keyFn) {
  */
 export function useBulkActions() {
   const qc = useQueryClient()
+  const lastUndo = useRef(null)
 
   const refresh = useCallback(() => {
     qc.invalidateQueries({ queryKey: ['files'] })
@@ -39,16 +40,22 @@ export function useBulkActions() {
       return false
     }
     refresh()
-    toast.success(message, undo ? {
-      action: {
-        label: 'Undo',
-        onClick: async () => {
-          try { await undo(); refresh(); toast.info('Undone') } catch (err) { toast.error(err.message) }
-        },
-      },
-    } : undefined)
+    const doUndo = async () => {
+      if (lastUndo.current === doUndo) lastUndo.current = null
+      try { await undo(); refresh(); toast.info('Undone') } catch (err) { toast.error(err.message) }
+    }
+    lastUndo.current = undo ? doUndo : null
+    toast.success(message, undo ? { action: { label: 'Undo', onClick: doUndo } } : undefined)
     return true
   }, [refresh])
+
+  /** Undo the most recent action from this hook (keyboard shortcut). Returns false when there is nothing to undo. */
+  const undoLast = useCallback(async () => {
+    const fn = lastUndo.current
+    if (!fn) return false
+    await fn()
+    return true
+  }, [])
 
   const moveToFolder = useCallback((files, folderId, folderName) => {
     if (!files.length) return Promise.resolve(true)
@@ -99,5 +106,5 @@ export function useBulkActions() {
     )
   }, [run])
 
-  return { moveToFolder, addTag, removeTag, setFavorite, markReviewed, refresh }
+  return { moveToFolder, addTag, removeTag, setFavorite, markReviewed, undoLast, refresh }
 }

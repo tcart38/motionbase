@@ -44,8 +44,9 @@ function Tip({ label, keys, children }) {
  * Shortcuts (when no text field or menu has focus):
  *   Space / K play-pause · M mute · F fullscreen · , and . step a frame · ← → seek 5 s
  *   [ and ] slower / faster · L loop
+ * `reservedKeys` (lowercase) lists keys the host page binds itself, which the player then ignores.
  */
-export default function VideoPlayer({ file, className, autoPlay = true }) {
+export default function VideoPlayer({ file, className, autoPlay = true, reservedKeys }) {
   const containerRef = useRef(null)
   const videoRef = useRef(null)
   const [playing, setPlaying] = useState(false)
@@ -138,12 +139,13 @@ export default function VideoPlayer({ file, className, autoPlay = true }) {
         ArrowLeft: () => seekBy(e.shiftKey ? -1 : -5), ArrowRight: () => seekBy(e.shiftKey ? 1 : 5),
         '[': () => stepRate(-1), ']': () => stepRate(1),
       }
+      if (reservedKeys?.includes(e.key.toLowerCase())) return
       const fn = handlers[e.key] || handlers[e.key.toLowerCase?.()]
       if (fn) { e.preventDefault(); fn() }
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [togglePlay, toggleMute, toggleFullscreen, stepFrame, seekBy, stepRate])
+  }, [togglePlay, toggleMute, toggleFullscreen, stepFrame, seekBy, stepRate, reservedKeys])
 
   if (!file || file.file_type !== 'video') return null
 
