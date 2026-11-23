@@ -23,6 +23,13 @@ RUN npm install --frozen-lockfile 2>/dev/null || npm install --omit=dev
 # Copy backend source
 COPY backend/src ./src
 
+# MCP server for Claude (run with: docker exec -i <container> node /app/mcp/index.js)
+WORKDIR /app/mcp
+COPY mcp/package.json mcp/package-lock.json* ./
+RUN npm ci --omit=dev
+COPY mcp/index.js mcp/src.js ./
+WORKDIR /app
+
 # Copy built frontend into backend's public dir
 COPY --from=frontend-builder /app/frontend/dist ./public
 
